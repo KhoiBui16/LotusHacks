@@ -1,0 +1,6 @@
+@LotusHacks.Api_HostAddress = http://localhost:5181
+
+GET {{LotusHacks.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

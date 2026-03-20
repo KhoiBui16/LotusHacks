@@ -1,13 +1,13 @@
-# LotusHacks Project
+# LotusHacks Website Project
 
-Chào mừng bạn đến với dự án Hackathon của chúng tôi! Cấu trúc này được thiết kế để tối ưu hóa tốc độ phát triển và sự hợp tác linh hoạt trong môi trường Hackathon.
+Chào mừng bạn đến với dự án website Hackathon của chúng tôi! Cấu trúc này được thiết kế để tối ưu hóa tốc độ phát triển và sự hợp tác linh hoạt trong môi trường Hackathon.
 
 ## 📁 Cấu trúc thư mục (Directory Structure)
 
 ```text
 LotusHacks/
 ├── frontend/          # Mã nguồn ứng dụng giao diện người dùng (Next.js/React)
-├── backend/           # Mã nguồn máy chủ (ASP.NET Core Web API)
+├── backend/           # Mã nguồn máy chủ (Python/FastAPI)
 ├── shared/            # Các loại (types), hằng số (constants) và tiện ích (utils) dùng chung
 ├── docs/              # Tài liệu dự án, bài thuyết trình (pitch deck), hình ảnh/video demo
 ├── scripts/           # Các tập lệnh tiện ích cho xử lý dữ liệu, triển khai (deployment)
@@ -18,7 +18,7 @@ LotusHacks/
 ## 🛠️ Công nghệ đề xuất (Proposed Tech Stack)
 
 - **Frontend:** [Next.js](https://nextjs.org/) (React framework), [Tailwind CSS](https://tailwindcss.com/) (styling), [Lucide Icons](https://lucide.dev/), [Shadcn UI](https://ui.shadcn.com/).
-- **Backend:** [ASP.NET Core Web API](https://learn.microsoft.com/en-us/aspnet/core/web-api/) (C#), [Entity Framework Core](https://learn.microsoft.com/en-us/ef/core/) (ORM).
+- **Backend:** [FastAPI](https://fastapi.tiangolo.com/) (Python), [Uvicorn](https://www.uvicorn.org/) (ASGI server).
 - **Database:** [Supabase](https://supabase.com/) (PostgreSQL + Auth + Storage) hoặc [MongoDB](https://www.mongodb.com/).
 - **AI/ML (nếu có):** [OpenAI API](https://openai.com/api/), [LangChain](https://www.langchain.com/), [Hugging Face](https://huggingface.co/).
 - **Deployment:** [Vercel](https://vercel.com/) (Frontend/Next.js), [Railway](https://railway.app/) (Backend/DB).
@@ -33,10 +33,14 @@ LotusHacks/
 
 2. **Backend:**
    ```bash
-   cd backend/LotusHacks.Api
-   dotnet run
+   cd backend
+   python -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   uvicorn app.main:app --reload --port 8000
    ```
-   *Truy cập Swagger tại:* `http://localhost:5000/swagger` (hoặc cổng được chỉ định trong console).
+   *Swagger UI:* `http://localhost:8000/docs`  
+   *ReDoc:* `http://localhost:8000/redoc`
 
 3. **Cài đặt các công cụ khác:**
    - Cài đặt [Prisma](https://www.prisma.io/) nếu bạn cần ORM.

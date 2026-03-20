@@ -17,9 +17,9 @@ LotusHacks/
 
 ## 🛠️ Công nghệ đề xuất (Proposed Tech Stack)
 
-- **Frontend:** [Next.js](https://nextjs.org/) (React framework), [Tailwind CSS](https://tailwindcss.com/) (styling), [Lucide Icons](https://lucide.dev/), [Shadcn UI](https://ui.shadcn.com/).
+- **Frontend:** [Next.js](https://nextjs.org/) (React framework), [Tailwind CSS](https://tailwindcss.com/) (styling), [Lovable](https://lovable.dev/).
 - **Backend:** [FastAPI](https://fastapi.tiangolo.com/) (Python), [Uvicorn](https://www.uvicorn.org/) (ASGI server).
-- **Database:** [Supabase](https://supabase.com/) (PostgreSQL + Auth + Storage) hoặc [MongoDB](https://www.mongodb.com/).
+- **Database:** [MongoDB](https://www.mongodb.com/) (NoSQL).
 - **AI/ML:** [OpenAI API](https://openai.com/api/), [LangChain](https://www.langchain.com/), [Hugging Face](https://huggingface.co/).
 - **Deployment:** [Vercel](https://vercel.com/) (Frontend/Next.js), [Railway](https://railway.app/) (Backend/DB).
 
@@ -37,10 +37,20 @@ LotusHacks/
    conda create -n lotushacks-api python=3.11 -y
    conda activate lotushacks-api
    pip install -r requirements.txt
+   export MONGODB_URI="mongodb://localhost:27017"
+   export MONGODB_DB_NAME="lotushacks"
+   export JWT_SECRET="change-me"
+   export GOOGLE_CLIENT_ID="your-google-client-id"
    uvicorn app.main:app --reload --port 8000
    ```
    *Swagger UI:* `http://localhost:8000/docs`  
    *ReDoc:* `http://localhost:8000/redoc`
+
+## 🗄️ MongoDB setup
+
+```bash
+mongosh "mongodb://localhost:27017" database/mongo-init.js
+```
 
 3. **Cài đặt các công cụ khác:**
    - Cài đặt [Prisma](https://www.prisma.io/) nếu bạn cần ORM.
@@ -56,6 +66,6 @@ LotusHacks/
 ## 👥 Thành viên nhóm (Team Members)
 
 - Đinh Việt Phát - Project Manager
-- Nguyễn Võ Ngọc Bảo - Backend Developer
-- Phan Quốc Đại Sơn - Frontend Developer
+- Nguyễn Võ Ngọc Bảo - Fullstack Developer
+- Phan Quốc Đại Sơn - AI/ML Developer
 - Bùi Nhật Anh Khôi - AI/ML Developer

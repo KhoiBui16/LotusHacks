@@ -62,3 +62,8 @@ body {
 .marquee {
   animation: marquee 22s linear infinite;
 }
+
+.icon-tint {
+  filter: invert(86%) sepia(22%) saturate(830%) hue-rotate(92deg)
+    brightness(102%) contrast(96%);
+}

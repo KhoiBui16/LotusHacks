@@ -1,6 +1,52 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
+
+import heroGraphic from "../../images/cw1rxDPqCrU.png";
+import portrait from "../../images/portrait.png";
+
+import menuIcon from "../../images/icons/hugeicons-menu-01.svg";
+import arrowRightIcon from "../../images/icons/solar-arrow-right-linear.svg";
+import walletIcon from "../../images/icons/solar-wallet-money-bold.svg";
+import routingIcon from "../../images/icons/solar-routing-2-bold.svg";
+import shieldIcon from "../../images/icons/solar-shield-check-bold.svg";
+import billIcon from "../../images/icons/solar-bill-list-bold.svg";
+import cardIcon from "../../images/icons/solar-card-2-bold.svg";
+import phoneIcon from "../../images/icons/solar-phone-bold.svg";
+import letterIcon from "../../images/icons/solar-letter-bold.svg";
+import mapIcon from "../../images/icons/solar-map-point-bold.svg";
+import historyIcon from "../../images/icons/solar-history-bold.svg";
+import checkReadIcon from "../../images/icons/solar-check-read-bold.svg";
+import playIcon from "../../images/icons/solar-play-circle-bold.svg";
+import facebookIcon from "../../images/icons/mdi-facebook.svg";
+import linkedinIcon from "../../images/icons/mdi-linkedin.svg";
+import youtubeIcon from "../../images/icons/mdi-youtube.svg";
+
+type AssetLike = { src: string } | string;
+
+function assetSrc(asset: AssetLike): string {
+  return typeof asset === "string" ? asset : asset.src;
+}
+
+function Icon({
+  src,
+  alt,
+  className,
+}: {
+  src: AssetLike;
+  alt: string;
+  className?: string;
+}) {
+  return (
+    <img
+      src={assetSrc(src)}
+      alt={alt}
+      className={`icon-tint ${className ?? ""}`}
+      loading="lazy"
+    />
+  );
+}
 
 function clamp01(value: number) {
   return Math.min(1, Math.max(0, value));
@@ -340,12 +386,22 @@ export default function Home() {
             </a>
           </nav>
 
-          <a
-            href="#contact"
-            className="rounded-full bg-vetc-600 px-4 py-2 text-sm font-semibold text-emerald-950 shadow-glow hover:bg-vetc-500"
-          >
-            Request a demo
-          </a>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-emerald-200/10 bg-emerald-950/50 hover:border-emerald-200/20 md:hidden"
+              aria-label="Open menu"
+            >
+              <Icon src={menuIcon} alt="" className="h-5 w-5" />
+            </button>
+            <a
+              href="#contact"
+              className="inline-flex items-center gap-2 rounded-full bg-vetc-600 px-4 py-2 text-sm font-semibold text-emerald-950 shadow-glow hover:bg-vetc-500"
+            >
+              Request a demo
+              <Icon src={arrowRightIcon} alt="" className="h-4 w-4" />
+            </a>
+          </div>
         </div>
       </header>
 
@@ -413,6 +469,40 @@ export default function Home() {
             <div className="relative rounded-3xl border border-emerald-200/10 bg-emerald-950/55 p-6 shadow-glow md:p-10">
               <div className="pointer-events-none absolute inset-0 bg-radial-soft opacity-90" />
               <div className="relative">
+                <div className="relative overflow-hidden rounded-2xl border border-emerald-200/10 bg-emerald-950/60">
+                  <Image
+                    src={heroGraphic}
+                    alt="VETC mobility payment network visualization"
+                    className="h-44 w-full object-cover opacity-90"
+                    priority
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-emerald-950/80 via-emerald-950/30 to-transparent" />
+                  <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <Image
+                        src={portrait}
+                        alt="Project avatar"
+                        className="h-10 w-10 rounded-full border border-emerald-200/10 object-cover"
+                      />
+                      <div className="leading-tight">
+                        <div className="text-sm font-semibold text-emerald-50">
+                          Web-first product demo
+                        </div>
+                        <div className="text-xs text-emerald-100/60">
+                          Dark-green landing • smooth motion
+                        </div>
+                      </div>
+                    </div>
+                    <div className="hidden items-center gap-2 sm:flex">
+                      <span className="rounded-full border border-emerald-200/10 bg-emerald-950/60 px-3 py-1 text-xs text-emerald-50/70">
+                        OpenAPI
+                      </span>
+                      <span className="rounded-full border border-emerald-200/10 bg-emerald-950/60 px-3 py-1 text-xs text-emerald-50/70">
+                        FastAPI
+                      </span>
+                    </div>
+                  </div>
+                </div>
                 <div className="text-xs tracking-[0.22em] uppercase text-emerald-100/60">
                   Product snapshot
                 </div>
@@ -421,22 +511,28 @@ export default function Home() {
                     {
                       title: "ETC Payments",
                       desc: "Tap-to-pass experiences with clear transaction trails.",
+                      icon: billIcon,
                     },
                     {
                       title: "Digital Wallet Services",
                       desc: "Top-ups, subscriptions, and mobility add-ons in one place.",
+                      icon: walletIcon,
                     },
                     {
                       title: "Open APIs",
                       desc: "Fast iterations with OpenAPI docs and Swagger UI.",
+                      icon: checkReadIcon,
                     },
                   ].map((card) => (
                     <div
                       key={card.title}
                       className="rounded-2xl border border-emerald-200/10 bg-emerald-950/70 p-5 backdrop-blur"
                     >
-                      <div className="text-sm font-semibold text-emerald-50">
-                        {card.title}
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="text-sm font-semibold text-emerald-50">
+                          {card.title}
+                        </div>
+                        <Icon src={card.icon} alt="" className="h-5 w-5" />
                       </div>
                       <div className="mt-2 text-sm text-emerald-50/70">
                         {card.desc}
@@ -475,22 +571,28 @@ export default function Home() {
             {
               title: "Secure payment flows",
               desc: "A consistent experience from top-up to toll payment, designed with clear user feedback.",
+              icon: walletIcon,
             },
             {
               title: "Operational resilience",
               desc: "Regional-first infrastructure thinking: reliability, continuity, and predictable performance.",
+              icon: routingIcon,
             },
             {
               title: "Developer velocity",
               desc: "Fast iteration loops with predictable API docs and test-friendly endpoints.",
+              icon: historyIcon,
             },
           ].map((f) => (
             <div
               key={f.title}
               className="rounded-3xl border border-emerald-200/10 bg-emerald-950/45 p-6 shadow-glow"
             >
-              <div className="text-lg font-semibold text-emerald-50">
-                {f.title}
+              <div className="flex items-start justify-between gap-4">
+                <div className="text-lg font-semibold text-emerald-50">
+                  {f.title}
+                </div>
+                <Icon src={f.icon} alt="" className="h-6 w-6" />
               </div>
               <div className="mt-3 text-sm leading-relaxed text-emerald-50/70">
                 {f.desc}
@@ -518,18 +620,22 @@ export default function Home() {
             {
               title: "Regional deployment mindset",
               desc: "Launch across multiple availability zones to reduce latency and strengthen business continuity.",
+              icon: mapIcon,
             },
             {
               title: "Managed operations",
               desc: "Keep teams focused on product innovation while maintaining a stable, secure backbone.",
+              icon: shieldIcon,
             },
             {
               title: "Intelligent automation",
               desc: "Turn documents, videos, and data into actionable insights and streamlined workflows.",
+              icon: cardIcon,
             },
             {
               title: "AI/ML acceleration",
               desc: "Scale experimentation with GPU-ready infrastructure and production-grade delivery patterns.",
+              icon: playIcon,
             },
           ].map((f) => (
             <div
@@ -540,7 +646,9 @@ export default function Home() {
                 <div className="text-lg font-semibold text-emerald-50">
                   {f.title}
                 </div>
-                <div className="h-10 w-10 rounded-2xl bg-vetc-600/20 ring-1 ring-emerald-200/10" />
+                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-vetc-600/20 ring-1 ring-emerald-200/10">
+                  <Icon src={f.icon} alt="" className="h-5 w-5" />
+                </div>
               </div>
               <div className="mt-3 text-sm leading-relaxed text-emerald-50/70">
                 {f.desc}
@@ -569,11 +677,17 @@ export default function Home() {
                     premium on the web.
                   </p>
                   <div className="mt-6 flex flex-wrap gap-3 text-sm text-emerald-50/70">
-                    <span className="rounded-full border border-emerald-200/10 bg-emerald-950/60 px-4 py-2">
+                    <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200/10 bg-emerald-950/60 px-4 py-2">
+                      <Icon src={phoneIcon} alt="" className="h-4 w-4" />
                       Hotline: 1900 6010
                     </span>
-                    <span className="rounded-full border border-emerald-200/10 bg-emerald-950/60 px-4 py-2">
+                    <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200/10 bg-emerald-950/60 px-4 py-2">
+                      <Icon src={mapIcon} alt="" className="h-4 w-4" />
                       Hanoi & Ho Chi Minh City
+                    </span>
+                    <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200/10 bg-emerald-950/60 px-4 py-2">
+                      <Icon src={letterIcon} alt="" className="h-4 w-4" />
+                      Contact support
                     </span>
                   </div>
                 </div>
@@ -584,15 +698,16 @@ export default function Home() {
                   </div>
                   <div className="mt-4 grid gap-3">
                     {[
-                      { k: "API Docs", v: "http://localhost:8000/docs" },
-                      { k: "ReDoc", v: "http://localhost:8000/redoc" },
-                      { k: "Frontend", v: "http://localhost:3000" },
+                      { k: "API Docs", v: "http://localhost:8000/docs", icon: checkReadIcon },
+                      { k: "ReDoc", v: "http://localhost:8000/redoc", icon: historyIcon },
+                      { k: "Frontend", v: "http://localhost:3000", icon: billIcon },
                     ].map((row) => (
                       <div
                         key={row.k}
                         className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-200/10 bg-emerald-950/70 px-4 py-3"
                       >
-                        <span className="text-sm text-emerald-50/80">
+                        <span className="inline-flex items-center gap-2 text-sm text-emerald-50/80">
+                          <Icon src={row.icon} alt="" className="h-4 w-4" />
                           {row.k}
                         </span>
                         <span className="truncate text-sm font-medium text-vetc-300">
@@ -605,9 +720,10 @@ export default function Home() {
                   <div className="mt-6">
                     <a
                       href="#"
-                      className="block rounded-2xl bg-vetc-600 px-5 py-3 text-center text-sm font-semibold text-emerald-950 shadow-glow hover:bg-vetc-500"
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-vetc-600 px-5 py-3 text-center text-sm font-semibold text-emerald-950 shadow-glow hover:bg-vetc-500"
                     >
                       Download demo brief
+                      <Icon src={arrowRightIcon} alt="" className="h-4 w-4" />
                     </a>
                   </div>
                 </div>
@@ -615,9 +731,29 @@ export default function Home() {
             </div>
           </div>
 
-          <footer className="mt-10 flex flex-col gap-2 border-t border-emerald-200/10 pt-8 text-sm text-emerald-100/60 md:flex-row md:items-center md:justify-between">
+          <footer className="mt-10 flex flex-col gap-4 border-t border-emerald-200/10 pt-8 text-sm text-emerald-100/60 md:flex-row md:items-center md:justify-between">
             <span>© {new Date().getFullYear()} VETC Technologies (concept)</span>
-            <span>Dark-green web landing • Scroll-driven motion • Loop slider</span>
+            <div className="flex items-center justify-between gap-6 md:justify-end">
+              <span className="hidden sm:inline">
+                Dark-green web landing • Scroll-driven motion • Loop slider
+              </span>
+              <div className="flex items-center gap-3">
+                {[
+                  { label: "Facebook", icon: facebookIcon, href: "#" },
+                  { label: "LinkedIn", icon: linkedinIcon, href: "#" },
+                  { label: "YouTube", icon: youtubeIcon, href: "#" },
+                ].map((s) => (
+                  <a
+                    key={s.label}
+                    href={s.href}
+                    aria-label={s.label}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-emerald-200/10 bg-emerald-950/50 hover:border-emerald-200/20"
+                  >
+                    <Icon src={s.icon} alt="" className="h-5 w-5" />
+                  </a>
+                ))}
+              </div>
+            </div>
           </footer>
         </div>
       </section>

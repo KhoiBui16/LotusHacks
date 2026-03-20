@@ -20,7 +20,7 @@ LotusHacks/
 - **Frontend:** [Next.js](https://nextjs.org/) (React framework), [Tailwind CSS](https://tailwindcss.com/) (styling), [Lucide Icons](https://lucide.dev/), [Shadcn UI](https://ui.shadcn.com/).
 - **Backend:** [FastAPI](https://fastapi.tiangolo.com/) (Python), [Uvicorn](https://www.uvicorn.org/) (ASGI server).
 - **Database:** [Supabase](https://supabase.com/) (PostgreSQL + Auth + Storage) hoặc [MongoDB](https://www.mongodb.com/).
-- **AI/ML (nếu có):** [OpenAI API](https://openai.com/api/), [LangChain](https://www.langchain.com/), [Hugging Face](https://huggingface.co/).
+- **AI/ML:** [OpenAI API](https://openai.com/api/), [LangChain](https://www.langchain.com/), [Hugging Face](https://huggingface.co/).
 - **Deployment:** [Vercel](https://vercel.com/) (Frontend/Next.js), [Railway](https://railway.app/) (Backend/DB).
 
 ## 🚀 Bắt đầu (Getting Started)

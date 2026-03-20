@@ -53,4 +53,9 @@ LotusHacks/
 - Sử dụng các thư viện UI sẵn có để tiết kiệm thời gian thiết kế giao diện.
 
 ---
-Chúc may mắn với dự án Hackathon của bạn! 🚀
+## 👥 Thành viên nhóm (Team Members)
+
+- Đinh Việt Phát - Project Manager
+- Nguyễn Võ Ngọc Bảo - Backend Developer
+- Phan Quốc Đại Sơn - Frontend Developer
+- Bùi Nhật Anh Khôi - AI/ML Developer

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useToast } from "@/hooks/use-toast";
@@ -16,12 +16,21 @@ import type { ChatSessionListItem, ChatSession } from "@/lib/api";
 
 export default function Chat() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { t } = useLanguage();
   const { toast } = useToast();
   const qc = useQueryClient();
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [messageInput, setMessageInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const bootstrapSessionId = searchParams.get("sessionId");
+
+  const syncSessionParam = (sessionId: string | null) => {
+    const next = new URLSearchParams(searchParams);
+    if (sessionId) next.set("sessionId", sessionId);
+    else next.delete("sessionId");
+    setSearchParams(next, { replace: true });
+  };
 
   const sessionsQuery = useQuery<ChatSessionListItem[], ApiError>({
     queryKey: ["chat-sessions"],
@@ -39,6 +48,7 @@ export default function Chat() {
     onSuccess: (newSession) => {
       qc.invalidateQueries({ queryKey: ["chat-sessions"] });
       setSelectedSessionId(newSession.id);
+      syncSessionParam(newSession.id);
       setMessageInput("");
     },
     onError: (err) => {
@@ -72,6 +82,7 @@ export default function Chat() {
     mutationFn: (id: string) => api.chat.deleteSession(id),
     onSuccess: () => {
       setSelectedSessionId(null);
+      syncSessionParam(null);
       qc.invalidateQueries({ queryKey: ["chat-sessions"] });
       toast({ title: "Session deleted" });
     },
@@ -84,12 +95,18 @@ export default function Chat() {
     },
   });
 
-  // Auto-select first session
   useEffect(() => {
-    if (!selectedSessionId && (sessionsQuery.data ?? []).length > 0) {
+    if (bootstrapSessionId && bootstrapSessionId !== selectedSessionId) {
+      setSelectedSessionId(bootstrapSessionId);
+    }
+  }, [bootstrapSessionId, selectedSessionId]);
+
+  // Auto-select first session when there is no bootstrapped session
+  useEffect(() => {
+    if (!bootstrapSessionId && !selectedSessionId && (sessionsQuery.data ?? []).length > 0) {
       setSelectedSessionId(sessionsQuery.data![0].id);
     }
-  }, [sessionsQuery.data, selectedSessionId]);
+  }, [bootstrapSessionId, sessionsQuery.data, selectedSessionId]);
 
   // Auto-scroll to bottom when messages update
   useEffect(() => {
@@ -137,7 +154,10 @@ export default function Chat() {
               sessions.map((session) => (
                 <div key={session.id} className="flex items-center gap-2">
                   <button
-                    onClick={() => setSelectedSessionId(session.id)}
+                    onClick={() => {
+                      setSelectedSessionId(session.id);
+                      syncSessionParam(session.id);
+                    }}
                     className={`flex-1 text-left px-3 py-2 rounded-lg transition-colors text-sm truncate ${
                       selectedSessionId === session.id
                         ? "bg-primary/20 text-primary"

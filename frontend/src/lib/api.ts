@@ -149,10 +149,27 @@ export type CoverageCheck = {
 
 export type EligibilityResponse = {
   claim_id: string;
-  outcome: "likely_covered" | "low_value_or_excluded";
+  outcome: "assisted_required" | "likely_covered" | "low_value_or_excluded";
   coverage: CoverageCheck;
   next_action: "assisted" | "chat" | "review" | "exit";
   notes: string[];
+  advice_text?: string | null;
+  recommended_actions?: string[];
+  save_draft_available?: boolean;
+  end_flow_available?: boolean;
+};
+
+export type ClaimChatBootstrapResponse = {
+  claim_id: string;
+  session_id: string;
+  title: string;
+  reused: boolean;
+};
+
+export type ClaimAdviceActionResponse = {
+  claim_id: string;
+  status: "draft" | "processing" | "needs-docs" | "approved" | "rejected" | "closed";
+  message: string;
 };
 
 export type PolicyImportResponse = {
@@ -230,6 +247,8 @@ export type ChatMessage = {
 export type ChatSession = {
   id: string;
   title: string;
+  claim_id?: string | null;
+  workflow_stage?: string | null;
   messages: ChatMessage[];
   created_at: string;
   updated_at: string;
@@ -239,6 +258,8 @@ export type ChatSessionListItem = {
   id: string;
   title: string;
   updated_at: string;
+  claim_id?: string | null;
+  workflow_stage?: string | null;
 };
 
 export type AdminClaimListItem = ClaimListItem & {
@@ -309,6 +330,10 @@ export const api = {
       apiRequest<TriageResponse>(`/claims/${claimId}/triage`, { method: "POST", auth: true }),
     eligibility: (claimId: string) =>
       apiRequest<EligibilityResponse>(`/claims/${claimId}/eligibility`, { auth: true }),
+    bootstrapChat: (claimId: string) =>
+      apiRequest<ClaimChatBootstrapResponse>(`/claims/${claimId}/chat-bootstrap`, { method: "POST", auth: true }),
+    adviceAction: (claimId: string, payload: { action: "save_draft" | "end_flow" }) =>
+      apiRequest<ClaimAdviceActionResponse>(`/claims/${claimId}/advice-action`, { method: "POST", body: payload, auth: true }),
     policyImport: (
       claimId: string,
       payload: { policy_id: string; insurer: string; effective_date?: string; expiry?: string; source?: "ocr" | "manual" | "upload" }
@@ -347,7 +372,8 @@ export const api = {
     patch: (payload: Partial<Settings>) => apiRequest<Settings>(`/settings`, { method: "PATCH", body: payload, auth: true }),
   },
   chat: {
-    createSession: () => apiRequest<ChatSession>(`/chat/sessions`, { method: "POST", body: {}, auth: true }),
+    createSession: (payload?: { title?: string; claim_id?: string; workflow_stage?: string; context_seed?: string; seeded_from_eligibility?: boolean }) =>
+      apiRequest<ChatSessionListItem>(`/chat/sessions`, { method: "POST", body: payload ?? {}, auth: true }),
     listSessions: () => apiRequest<ChatSessionListItem[]>(`/chat/sessions`, { auth: true }),
     getSession: (id: string) => apiRequest<ChatSession>(`/chat/sessions/${id}`, { auth: true }),
     sendMessage: (sessionId: string, payload: { content: string }) =>

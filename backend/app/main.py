@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import os
 
 from app.db import close_db, init_db
 from app.agent.routers.workflow import router as agent_workflow_router
@@ -19,9 +20,26 @@ app = FastAPI(
     version="0.1.0",
 )
 
+default_allowed_origins = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:8080",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:8080",
+    "https://adamnbz.github.io",
+]
+raw_allowed_origins = os.getenv("ALLOWED_ORIGINS", "").strip()
+if raw_allowed_origins:
+    extra_origins = [origin.strip() for origin in raw_allowed_origins.split(",") if origin.strip()]
+    allowed_origins = list(dict.fromkeys(default_allowed_origins + extra_origins))
+else:
+    allowed_origins = default_allowed_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_origins=allowed_origins,
+    allow_origin_regex=r"^https://[a-z0-9-]+\.github\.io$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

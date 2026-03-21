@@ -30,6 +30,7 @@ import LegalTerms from "./pages/LegalTerms.tsx";
 import ForgotPassword from "./pages/ForgotPassword.tsx";
 import ClaimAppeal from "./pages/ClaimAppeal.tsx";
 import Chat from "./pages/Chat.tsx";
+import ClaimAdvice from "./pages/ClaimAdvice.tsx";
 
 const queryClient = new QueryClient();
 
@@ -62,6 +63,7 @@ const App = () => (
             <Route path="/policy-import" element={<PolicyImport />} />
             <Route path="/incident-intake" element={<IncidentIntake />} />
             <Route path="/assisted-mode" element={<AssistedMode />} />
+            <Route path="/claim-advice" element={<ClaimAdvice />} />
             <Route path="/emergency" element={<Emergency />} />
             <Route path="/checklist-upload" element={<ChecklistUpload />} />
             <Route path="/validation" element={<Validation />} />

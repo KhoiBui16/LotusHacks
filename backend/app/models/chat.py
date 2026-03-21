@@ -16,6 +16,10 @@ class ChatSession(BaseModel):
     id: Optional[str] = Field(None, alias="_id")
     user_id: str
     title: str
+    claim_id: Optional[str] = None
+    workflow_stage: Optional[str] = None
+    context_seed: Optional[str] = None
+    seeded_from_eligibility: bool = False
     messages: list[ChatMessage] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -40,6 +44,14 @@ class ChatMessageRequest(BaseModel):
     content: str
 
 
+class ChatSessionCreateRequest(BaseModel):
+    title: Optional[str] = None
+    claim_id: Optional[str] = None
+    workflow_stage: Optional[str] = None
+    context_seed: Optional[str] = None
+    seeded_from_eligibility: bool = False
+
+
 class ChatResponse(BaseModel):
     id: str
     role: str
@@ -52,11 +64,15 @@ class ChatSessionListItem(BaseModel):
     id: str
     title: str
     updated_at: str
+    claim_id: Optional[str] = None
+    workflow_stage: Optional[str] = None
 
 
 class ChatSessionDetail(BaseModel):
     id: str
     title: str
+    claim_id: Optional[str] = None
+    workflow_stage: Optional[str] = None
     messages: list[ChatResponse]
     created_at: str
     updated_at: str

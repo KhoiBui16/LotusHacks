@@ -11,7 +11,7 @@ from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.agent.agents.insurance_agents import insurance_agents
+from app.agent.agents.insurance_agents import _call_llm, _parse_json_response, insurance_agents
 from app.agent.models.schemas import IncidentInput as AgentIncidentInput
 from app.agent.models.schemas import IncidentType as AgentIncidentType
 from app.db import get_db
@@ -24,6 +24,9 @@ from app.schemas.claims import (
     AttachDocumentRequest,
     ClaimAppealRequest,
     ClaimAppealResponse,
+    ClaimAdviceActionRequest,
+    ClaimAdviceActionResponse,
+    ClaimChatBootstrapResponse,
     CoverageCheckResponse,
     ClaimCreateRequest,
     ClaimDocumentResponse,
@@ -290,6 +293,313 @@ def _build_coverage_check(
         likely_excluded=likely_excluded,
         deductible_notice=coverage_summary,
     )
+
+
+def _serialize_policy_citations(citations: list) -> list[dict]:
+    return [citation.model_dump() for citation in (citations or [])]
+
+
+def _build_incident_snapshot(
+    *,
+    claim: ClaimInDB,
+    agent_incident: AgentIncidentInput,
+) -> dict:
+    incident = claim.incident
+    if not incident:
+        return {}
+
+    return {
+        "claim_id": claim.id,
+        "incident_type": incident.type,
+        "date": incident.date,
+        "time": incident.time,
+        "location_text": incident.location_text,
+        "description": incident.description,
+        "has_third_party": incident.has_third_party,
+        "third_party_info": incident.third_party_info,
+        "can_drive": incident.can_drive,
+        "needs_towing": incident.needs_towing,
+        "has_injury": incident.has_injury,
+        "agent_input": agent_incident.model_dump(mode="json"),
+    }
+
+
+def _build_policy_snapshot(
+    *,
+    claim: ClaimInDB,
+    vehicle: VehicleInDB | None,
+) -> dict:
+    return {
+        "claim_policy_id": claim.policy_id,
+        "claim_insurer": claim.insurer,
+        "vehicle_policy_linked": vehicle.policy_linked if vehicle else False,
+        "vehicle_policy_id": vehicle.policy_id if vehicle else None,
+        "vehicle_insurer": vehicle.insurer if vehicle else None,
+        "policy_effective_date": vehicle.effective_date if vehicle else None,
+        "policy_expiry": vehicle.expiry if vehicle else None,
+        "additional_benefits": list(vehicle.additional_benefits) if vehicle else [],
+        "vehicle_plate": vehicle.plate if vehicle else None,
+        "vehicle_model": vehicle.model if vehicle else None,
+    }
+
+
+async def _build_required_doc_profile(
+    db: AsyncIOMotorDatabase,
+    *,
+    claim: ClaimInDB,
+) -> list[dict]:
+    await ensure_required_doc_stubs(db, claim)
+    docs = await db["claim_documents"].find({"claim_id": ObjectId(claim.id)}).to_list(length=200)
+    docs_by_type = {doc["doc_type"]: doc for doc in docs}
+
+    profile = []
+    for required_doc in required_docs_for_claim(claim):
+        existing = docs_by_type.get(required_doc.doc_type, {})
+        profile.append(
+            {
+                "doc_type": required_doc.doc_type,
+                "title": required_doc.title,
+                "required": required_doc.required,
+                "status": existing.get("status", "missing"),
+                "note": existing.get("note"),
+                "upload_id": existing.get("upload_id"),
+            }
+        )
+    return profile
+
+
+def _build_chat_title(*, claim: ClaimInDB, vehicle: VehicleInDB | None) -> str:
+    incident_type = (claim.incident.type if claim.incident else "claim").replace("-", " ").title()
+    plate = vehicle.plate if vehicle and vehicle.plate else "vehicle"
+    return f"{incident_type} guidance - {plate}"
+
+
+def _build_chat_context_seed(
+    *,
+    claim: ClaimInDB,
+    vehicle: VehicleInDB | None,
+    triage_doc: dict,
+    eligibility_result: EligibilityResponse,
+    required_doc_profile: list[dict],
+) -> str:
+    incident = claim.incident
+    if not incident:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Incident intake is incomplete")
+
+    required_lines = "\n".join(
+        f"- {doc['title']} ({doc['doc_type']}): required={doc['required']}, status={doc['status']}"
+        for doc in required_doc_profile
+    ) or "- No document profile available."
+
+    notes = "\n".join(f"- {note}" for note in eligibility_result.notes) or "- No pre-check notes."
+    triage_reasons = "\n".join(f"- {reason}" for reason in triage_doc.get("reasons", [])) or "- No triage reasons."
+
+    return (
+        "You are the claim preparation assistant for an auto insurance claim in Vietnam.\n"
+        "Stay grounded in the current claim context below. Do not restart triage. "
+        "Treat coverage as a preliminary pre-check only, not a final approval.\n\n"
+        f"Claim ID: {claim.id}\n"
+        f"Vehicle: {(vehicle.model if vehicle else 'Unknown vehicle')} / {(vehicle.plate if vehicle else 'No plate')}\n"
+        f"Incident type: {incident.type}\n"
+        f"Incident date: {incident.date}\n"
+        f"Incident time: {incident.time or 'Not provided'}\n"
+        f"Location: {incident.location_text}\n"
+        f"Description: {incident.description or 'No additional description'}\n"
+        f"Third party involved: {incident.has_third_party}\n"
+        f"Vehicle can drive: {incident.can_drive}\n"
+        f"Needs towing: {incident.needs_towing}\n"
+        f"Injury reported: {incident.has_injury}\n\n"
+        f"Triage reasons:\n{triage_reasons}\n\n"
+        f"Eligibility outcome: {eligibility_result.outcome}\n"
+        f"Next action: {eligibility_result.next_action}\n"
+        f"Coverage notes:\n{notes}\n\n"
+        f"Required document profile:\n{required_lines}\n\n"
+        "Your job in this chat is to guide the user through claim preparation, explain the current checklist, "
+        "and help them understand what evidence or documents they should prepare next."
+    )
+
+
+def _fallback_claim_advice(
+    *,
+    coverage: CoverageCheckResponse,
+    coverage_notes: list[str],
+    required_doc_profile: list[dict],
+) -> tuple[str, list[str]]:
+    missing_required = [doc["title"] for doc in required_doc_profile if doc["required"] and doc["status"] == "missing"]
+
+    if not coverage.has_policy:
+        advice_text = (
+            "Chưa có đủ thông tin policy liên kết để tiếp tục claim một cách chắc chắn. "
+            "Nếu bạn chưa import hợp đồng hoặc giấy chứng nhận bảo hiểm, nên lưu draft và bổ sung trước."
+        )
+        actions = [
+            "Lưu draft hồ sơ để bổ sung policy hoặc giấy chứng nhận bảo hiểm.",
+            "Chỉ cân nhắc claim lại sau khi đã xác minh insurer, số hợp đồng và thời hạn hiệu lực.",
+            "Nếu thiệt hại nhỏ, có thể cân nhắc tự sửa ngoài để tiết kiệm thời gian.",
+        ]
+    elif not coverage.policy_active:
+        advice_text = (
+            "Kết quả pre-check cho thấy policy hiện tại có thể không còn hiệu lực tại thời điểm sự cố, "
+            "nên khả năng tiếp tục claim đang thấp."
+        )
+        actions = [
+            "Rà soát lại ngày hiệu lực và ngày hết hạn của policy trước khi claim lại.",
+            "Lưu draft để giữ lại thông tin sự cố và chứng cứ ban đầu.",
+            "Nếu chi phí khắc phục thấp, có thể cân nhắc tự sửa ngoài thay vì mở claim ngay.",
+        ]
+    elif coverage.likely_excluded:
+        advice_text = (
+            "Tình huống hiện tại có dấu hiệu rơi vào trường hợp bị loại trừ hoặc chưa đủ lợi thế để tiếp tục claim sơ bộ."
+        )
+        actions = [
+            "Xem lại quyền lợi bổ sung và điều khoản loại trừ của policy trước khi quyết định claim.",
+            "Nếu mức tổn thất nhỏ, cân nhắc tự sửa ngoài thay vì nộp claim ngay.",
+            "Lưu draft để có thể tiếp tục sau khi bổ sung thêm giấy tờ hoặc thông tin còn thiếu.",
+        ]
+    else:
+        advice_text = (
+            "Kết quả pre-check hiện chưa ủng hộ việc tiếp tục claim ngay. "
+            "Bạn nên giữ lại hồ sơ ở dạng draft và chỉ mở claim lại khi có thêm căn cứ rõ hơn."
+        )
+        actions = [
+            "Lưu draft để giữ lại thông tin sự cố và các tài liệu đã có.",
+            "Bổ sung thêm policy, chứng từ hoặc bằng chứng hiện trường nếu có.",
+            "Nếu thiệt hại nhỏ, cân nhắc phương án tự sửa ngoài.",
+        ]
+
+    if missing_required:
+        actions.append(f"Bổ sung các giấy tờ còn thiếu như: {', '.join(missing_required[:3])}.")
+
+    if coverage_notes:
+        actions.append(f"Ghi nhớ kết luận sơ bộ hiện tại: {coverage_notes[0]}")
+
+    deduped_actions = []
+    for action in actions:
+        if action not in deduped_actions:
+            deduped_actions.append(action)
+
+    return advice_text, deduped_actions[:4]
+
+
+async def _generate_claim_advice(
+    *,
+    incident_snapshot: dict,
+    policy_snapshot: dict,
+    coverage: CoverageCheckResponse,
+    eligibility_notes: list[str],
+    required_doc_profile: list[dict],
+) -> dict:
+    fallback_text, fallback_actions = _fallback_claim_advice(
+        coverage=coverage,
+        coverage_notes=eligibility_notes,
+        required_doc_profile=required_doc_profile,
+    )
+
+    prompt = (
+        "Dua tren du lieu pre-check bao hiem o to duoi day, hay tao loi khuyen ngan gon cho user.\n"
+        "Bat buoc tra ve JSON hop le voi schema:\n"
+        "{\n"
+        '  "advice_text": "string",\n'
+        '  "recommended_actions": ["string"],\n'
+        '  "should_claim": false,\n'
+        '  "save_option_available": true,\n'
+        '  "end_flow_available": true\n'
+        "}\n"
+        "Quy tac:\n"
+        "- Giu giong dieu huong thuc te, khong qua phap ly.\n"
+        "- Khong duoc noi rang claim chac chan duoc duyet.\n"
+        "- Tap trung vao 2-4 hanh dong tiep theo.\n"
+        "- Neu thieu policy hoac nghi het hieu luc, nen uu tien luu draft va bo sung.\n"
+        "- Van phai giu should_claim=false.\n\n"
+        f"incident_snapshot={json.dumps(incident_snapshot, ensure_ascii=False)}\n"
+        f"policy_snapshot={json.dumps(policy_snapshot, ensure_ascii=False)}\n"
+        f"coverage={json.dumps(coverage.model_dump(mode='json'), ensure_ascii=False)}\n"
+        f"eligibility_notes={json.dumps(eligibility_notes, ensure_ascii=False)}\n"
+        f"required_doc_profile={json.dumps(required_doc_profile, ensure_ascii=False)}\n"
+    )
+
+    try:
+        content = _call_llm(prompt)
+        parsed = _parse_json_response(content)
+        advice_text = str(parsed.get("advice_text") or "").strip()
+        raw_actions = parsed.get("recommended_actions") or []
+        recommended_actions = [
+            str(item).strip()
+            for item in raw_actions
+            if isinstance(item, str) and str(item).strip()
+        ]
+        if not advice_text:
+            raise ValueError("Advice text is empty")
+        if not recommended_actions:
+            recommended_actions = fallback_actions
+        return {
+            "advice_text": advice_text,
+            "recommended_actions": recommended_actions[:4],
+            "should_claim": False,
+            "save_option_available": True,
+            "end_flow_available": True,
+            "generation_mode": "llm_advice",
+        }
+    except Exception:
+        return {
+            "advice_text": fallback_text,
+            "recommended_actions": fallback_actions,
+            "should_claim": False,
+            "save_option_available": True,
+            "end_flow_available": True,
+            "generation_mode": "fallback_rule_advice",
+        }
+
+
+async def _persist_triage_result(
+    db: AsyncIOMotorDatabase,
+    *,
+    claim_id: str,
+    user_id: str,
+    claim: ClaimInDB,
+    agent_incident: AgentIncidentInput,
+    triage_result,
+    now: datetime,
+) -> dict:
+    assisted = triage_result.is_complex
+    reasons = triage_result.triggered_rules or [triage_result.description]
+    risk_level = _triage_risk_level(agent_incident, assisted)
+    incident_snapshot = _build_incident_snapshot(claim=claim, agent_incident=agent_incident)
+
+    triage_doc = {
+        "risk_level": risk_level,
+        "assisted_mode": assisted,
+        "reasons": reasons,
+        "description": triage_result.description,
+        "citations": _serialize_policy_citations(triage_result.citations),
+        "source": "agent_workflow",
+        "at": now,
+    }
+    triage_internal = {
+        "input_snapshot": incident_snapshot,
+        "rule_hits": triage_result.triggered_rules,
+        "rule_version": "current_agent_rules",
+        "decision": "yes" if assisted else "no",
+        "description": triage_result.description,
+        "citations": _serialize_policy_citations(triage_result.citations),
+        "source_mode": "agent_workflow",
+        "generated_at": now,
+    }
+
+    await db["claims"].update_one(
+        {"_id": ObjectId(claim_id), "user_id": ObjectId(user_id)},
+        {"$set": {"triage": triage_doc, "triage_internal": triage_internal, "updated_at": now}},
+    )
+    return triage_doc
+
+
+def _update_timeline_with_label(claim: ClaimInDB, *, label: str, at: datetime) -> list[dict]:
+    timeline = [ClaimTimelineItem.model_validate(item).model_dump() for item in claim.timeline]
+    for item in timeline:
+        if item.get("status") == "current":
+            item["status"] = "done"
+    timeline.append({"at": at, "label": label, "status": "current"})
+    return timeline
 
 
 def required_docs_for_claim(claim: ClaimInDB) -> list[RequiredDoc]:
@@ -962,22 +1272,14 @@ async def triage_claim(
     risk_level = _triage_risk_level(agent_incident, assisted)
 
     now = datetime.now(timezone.utc)
-    await db["claims"].update_one(
-        {"_id": ObjectId(claim_id), "user_id": ObjectId(user.id)},
-        {
-            "$set": {
-                "triage": {
-                    "risk_level": risk_level,
-                    "assisted_mode": assisted,
-                    "reasons": reasons,
-                    "description": triage_result.description,
-                    "citations": [citation.model_dump() for citation in triage_result.citations],
-                    "source": "agent_workflow",
-                    "at": now,
-                },
-                "updated_at": now,
-            }
-        },
+    await _persist_triage_result(
+        db,
+        claim_id=claim_id,
+        user_id=user.id,
+        claim=claim,
+        agent_incident=agent_incident,
+        triage_result=triage_result,
+        now=now,
     )
 
     return TriageResponse(claim_id=claim_id, risk_level=risk_level, assisted_mode=assisted, reasons=reasons)
@@ -1007,12 +1309,26 @@ async def get_eligibility(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Workflow triage failed: {exc}",
             )
-        assisted_mode = triage_result.is_complex
+        now = datetime.now(timezone.utc)
+        triage_doc = await _persist_triage_result(
+            db,
+            claim_id=claim_id,
+            user_id=user.id,
+            claim=claim,
+            agent_incident=agent_incident,
+            triage_result=triage_result,
+            now=now,
+        )
+        assisted_mode = triage_doc["assisted_mode"]
+
+    incident_snapshot = _build_incident_snapshot(claim=claim, agent_incident=agent_incident)
+    policy_snapshot = _build_policy_snapshot(claim=claim, vehicle=vehicle)
+    required_doc_profile = await _build_required_doc_profile(db, claim=claim)
 
     if assisted_mode:
         result = EligibilityResponse(
             claim_id=claim_id,
-            outcome="likely_covered",
+            outcome="assisted_required",
             coverage=_build_coverage_check(
                 claim=claim,
                 vehicle=vehicle,
@@ -1023,6 +1339,26 @@ async def get_eligibility(
             next_action="assisted",
             notes=["Complex case requires assisted handling before coverage pre-check."],
         )
+        coverage_precheck_internal = {
+            "incident_snapshot": incident_snapshot,
+            "triage_ref": {
+                "assisted_mode": True,
+                "reasons": triage_doc.get("reasons", []),
+            },
+            "policy_snapshot": policy_snapshot,
+            "retrieval_mode": "deferred",
+            "retrieval_status": "skipped_due_to_assisted_mode",
+            "retrieved_chunks": [],
+            "coverage_basis": "Coverage pre-check deferred to Assisted Mode.",
+            "validity_checks": {"has_policy": result.coverage.has_policy},
+            "exclusion_hits": [],
+            "deductible_hint": result.coverage.deductible_notice,
+            "required_doc_profile": required_doc_profile,
+            "decision": "deferred",
+            "description": "Complex case requires assisted handling before coverage pre-check.",
+            "generated_at": datetime.now(timezone.utc),
+        }
+        advice_internal = None
     else:
         try:
             coverage_result = insurance_agents.run_coverage_agent(agent_incident)
@@ -1046,17 +1382,218 @@ async def get_eligibility(
             next_action="chat" if coverage_result.is_eligible else "exit",
             notes=[coverage_result.description],
         )
+        coverage_precheck_internal = {
+            "incident_snapshot": incident_snapshot,
+            "triage_ref": {
+                "assisted_mode": False,
+                "reasons": triage_doc.get("reasons", []),
+            },
+            "policy_snapshot": policy_snapshot,
+            "retrieval_mode": "rule_plus_rag" if coverage_result.citations else "rule_only",
+            "retrieval_status": "ok" if coverage_result.citations else "no_policy_citations",
+            "retrieved_chunks": _serialize_policy_citations(coverage_result.citations),
+            "coverage_basis": coverage_result.coverage_summary,
+            "validity_checks": {
+                "has_policy": coverage.has_policy,
+                "policy_active": coverage.policy_active,
+            },
+            "exclusion_hits": ["likely_excluded"] if coverage.likely_excluded else [],
+            "deductible_hint": coverage_result.coverage_summary,
+            "required_doc_profile": required_doc_profile,
+            "decision": "yes" if coverage_result.is_eligible else "no",
+            "description": coverage_result.description,
+            "generated_at": datetime.now(timezone.utc),
+        }
 
+        advice_internal = None
+        if not coverage_result.is_eligible:
+            advice_payload = await _generate_claim_advice(
+                incident_snapshot=incident_snapshot,
+                policy_snapshot=policy_snapshot,
+                coverage=coverage,
+                eligibility_notes=result.notes,
+                required_doc_profile=required_doc_profile,
+            )
+            result.advice_text = advice_payload["advice_text"]
+            result.recommended_actions = advice_payload["recommended_actions"]
+            result.save_draft_available = advice_payload["save_option_available"]
+            result.end_flow_available = advice_payload["end_flow_available"]
+            advice_internal = {
+                "input_snapshot": incident_snapshot,
+                "coverage_ref": {
+                    "claim_id": claim_id,
+                    "outcome": result.outcome,
+                    "next_action": result.next_action,
+                },
+                "generated_text": result.advice_text,
+                "recommended_actions": result.recommended_actions,
+                "generation_mode": advice_payload["generation_mode"],
+                "generated_at": datetime.now(timezone.utc),
+            }
+
+    update_payload = {
+        "eligibility": result.model_dump(),
+        "coverage_precheck_internal": coverage_precheck_internal,
+        "updated_at": datetime.now(timezone.utc),
+    }
+    if advice_internal is not None:
+        update_payload["advice_internal"] = advice_internal
+
+    update_doc: dict = {"$set": update_payload}
+    if advice_internal is None:
+        update_doc["$unset"] = {"advice_internal": ""}
+
+    await db["claims"].update_one(
+        {"_id": ObjectId(claim_id), "user_id": ObjectId(user.id)},
+        update_doc,
+    )
+    return result
+
+
+@router.post("/{claim_id}/chat-bootstrap", response_model=ClaimChatBootstrapResponse)
+async def bootstrap_claim_chat(
+    claim_id: str,
+    user: Annotated[UserInDB, Depends(get_current_user)],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+) -> ClaimChatBootstrapResponse:
+    claim_doc = await db["claims"].find_one({"_id": ObjectId(claim_id), "user_id": ObjectId(user.id)})
+    if not claim_doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
+
+    eligibility_doc = claim_doc.get("eligibility")
+    if not eligibility_doc:
+        eligibility_result = await get_eligibility(claim_id=claim_id, user=user, db=db)
+        eligibility_doc = eligibility_result.model_dump()
+        claim_doc = await db["claims"].find_one({"_id": ObjectId(claim_id), "user_id": ObjectId(user.id)})
+        if not claim_doc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
+
+    if eligibility_doc.get("next_action") != "chat":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Claim is not eligible for chat guidance",
+        )
+
+    claim = ClaimInDB.from_mongo(claim_doc)
+    vehicle = await _load_claim_vehicle(db, claim=claim, user_id=user.id)
+    triage_doc = claim_doc.get("triage") or {}
+    eligibility_result = EligibilityResponse.model_validate(eligibility_doc)
+    required_doc_profile = await _build_required_doc_profile(db, claim=claim)
+    context_seed = _build_chat_context_seed(
+        claim=claim,
+        vehicle=vehicle,
+        triage_doc=triage_doc,
+        eligibility_result=eligibility_result,
+        required_doc_profile=required_doc_profile,
+    )
+    title = _build_chat_title(claim=claim, vehicle=vehicle)
+
+    user_oid = ObjectId(user.id)
+    now = datetime.now(timezone.utc)
+    existing = await db["chat_sessions"].find_one(
+        {
+            "user_id": user_oid,
+            "claim_id": claim_id,
+            "workflow_stage": "claim_guidance",
+        }
+    )
+    if existing:
+        await db["chat_sessions"].update_one(
+            {"_id": existing["_id"], "user_id": user_oid},
+            {
+                "$set": {
+                    "title": title,
+                    "context_seed": context_seed,
+                    "seeded_from_eligibility": True,
+                    "updated_at": now,
+                }
+            },
+        )
+        return ClaimChatBootstrapResponse(
+            claim_id=claim_id,
+            session_id=str(existing["_id"]),
+            title=title,
+            reused=True,
+        )
+
+    session_doc = {
+        "user_id": user_oid,
+        "title": title,
+        "claim_id": claim_id,
+        "workflow_stage": "claim_guidance",
+        "context_seed": context_seed,
+        "seeded_from_eligibility": True,
+        "messages": [],
+        "created_at": now,
+        "updated_at": now,
+    }
+    result = await db["chat_sessions"].insert_one(session_doc)
+    return ClaimChatBootstrapResponse(
+        claim_id=claim_id,
+        session_id=str(result.inserted_id),
+        title=title,
+        reused=False,
+    )
+
+
+@router.post("/{claim_id}/advice-action", response_model=ClaimAdviceActionResponse)
+async def apply_claim_advice_action(
+    claim_id: str,
+    payload: ClaimAdviceActionRequest,
+    user: Annotated[UserInDB, Depends(get_current_user)],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+) -> ClaimAdviceActionResponse:
+    doc = await db["claims"].find_one({"_id": ObjectId(claim_id), "user_id": ObjectId(user.id)})
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
+
+    eligibility_doc = doc.get("eligibility") or {}
+    if eligibility_doc.get("next_action") != "exit":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Advice actions are only available for exit decisions",
+        )
+
+    claim = ClaimInDB.from_mongo(doc)
+    now = datetime.now(timezone.utc)
+
+    if payload.action == "save_draft":
+        timeline = _update_timeline_with_label(claim, label="Advice saved as draft", at=now)
+        await db["claims"].update_one(
+            {"_id": ObjectId(claim_id), "user_id": ObjectId(user.id)},
+            {
+                "$set": {
+                    "status": "draft",
+                    "timeline": timeline,
+                    "advice_action": {"action": "save_draft", "at": now},
+                    "updated_at": now,
+                }
+            },
+        )
+        return ClaimAdviceActionResponse(
+            claim_id=claim_id,
+            status="draft",
+            message="Claim draft saved. You can return later to continue from the saved information.",
+        )
+
+    timeline = _update_timeline_with_label(claim, label="Claim closed without submission", at=now)
     await db["claims"].update_one(
         {"_id": ObjectId(claim_id), "user_id": ObjectId(user.id)},
         {
             "$set": {
-                "eligibility": result.model_dump(),
-                "updated_at": datetime.now(timezone.utc),
+                "status": "closed",
+                "timeline": timeline,
+                "closure_reason": "no_claim_advised",
+                "advice_action": {"action": "end_flow", "at": now},
+                "updated_at": now,
             }
         },
     )
-    return result
+    return ClaimAdviceActionResponse(
+        claim_id=claim_id,
+        status="closed",
+        message="Claim flow closed. Your incident record has been kept for reference.",
+    )
 
 
 @router.post("/{claim_id}/first-notice", response_model=FirstNoticeResponse)

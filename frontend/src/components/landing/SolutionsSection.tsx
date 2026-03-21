@@ -52,7 +52,7 @@ function SolutionRow({ num, title, desc, tag, index }: { num: string; title: str
   return (
     <div
       ref={ref}
-      className="reveal-left group flex flex-col md:flex-row md:items-center gap-4 md:gap-8 p-6 md:p-8 rounded-2xl border border-border/30 bg-card/30 hover:border-primary/20 hover:bg-card/60 transition-all duration-500 cursor-pointer active:scale-[0.98]"
+      className="reveal-left group flex flex-col md:flex-row md:items-center gap-4 md:gap-8 p-6 md:p-8 rounded-2xl border border-border/30 bg-card/30 hover:border-primary/20 hover:bg-card/60 transition-all duration-500"
       style={{ transitionDelay: `${index * 100}ms` }}
     >
       <span className="font-display text-3xl font-bold text-primary/30 group-hover:text-primary/60 transition-colors duration-300 shrink-0 w-16">

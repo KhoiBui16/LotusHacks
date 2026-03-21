@@ -68,7 +68,7 @@ export default function HeroSection() {
           <Button
             size="lg"
             className="group active:scale-95 transition-transform text-sm px-8"
-            onClick={() => navigate("/start-claim")}
+            onClick={() => scrollToSection("#solutions")}
           >
             {t("hero.cta1")}
             <ArrowRight className="ml-1 w-4 h-4 transition-transform duration-200 group-hover:translate-x-1" />

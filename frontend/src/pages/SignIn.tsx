@@ -160,7 +160,7 @@ export default function SignIn() {
         <div className="relative z-10 px-12 max-w-lg">
           <Link to="/" className="flex items-center gap-3 mb-12 group">
             <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center font-display font-bold text-primary-foreground text-xl transition-transform duration-200 group-hover:scale-95">V</div>
-            <span className="font-display font-semibold text-2xl text-foreground tracking-tight">VETC</span>
+            <span className="font-display font-semibold text-2xl text-foreground tracking-tight">VETC InsureAssist</span>
           </Link>
           <h2 className="font-display text-3xl font-bold text-foreground leading-tight mb-4" style={{ lineHeight: "1.15" }}>
             {t("signin.brand.title1")}<br />
@@ -177,7 +177,7 @@ export default function SignIn() {
           </Link>
           <div className="lg:hidden flex items-center gap-2 mb-8">
             <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center font-display font-bold text-primary-foreground text-lg">V</div>
-            <span className="font-display font-semibold text-lg text-foreground tracking-tight">VETC</span>
+            <span className="font-display font-semibold text-lg text-foreground tracking-tight">VETC InsureAssist</span>
           </div>
 
           <h1 className="font-display text-2xl font-bold text-foreground mb-1" style={{ lineHeight: "1.2" }}>

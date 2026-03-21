@@ -2,17 +2,17 @@ import Navbar from "@/components/landing/Navbar";
 import Footer from "@/components/landing/Footer";
 import { useScrollReveal } from "@/hooks/useScrollReveal";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { ArrowRight, Radio, Shield, Cpu, BarChart3, Globe } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { ArrowRight, Lightbulb, Scale, FileCheck, LifeBuoy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TranslationKey } from "@/i18n/translations";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
-const pillars: { id: string; icon: typeof Radio; num: string; titleKey: TranslationKey; subtitleKey: TranslationKey; statValueKey: string; statLabelKey: TranslationKey; description: string; features: string[] }[] = [
-  { id: "rfid", icon: Radio, num: "01", titleKey: "cs.p1.title", subtitleKey: "cs.p1.subtitle", statValueKey: "4.2M+", statLabelKey: "cs.p1.stat", description: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Suspendisse varius enim in eros elementum tristique.", features: ["Ultra-high frequency passive RFID tags with 10+ year lifespan", "Tamper-proof mounting with vehicle identification binding", "Multi-lane detection at speeds exceeding 120 km/h", "Batch provisioning and remote firmware updates"] },
-  { id: "security", icon: Shield, num: "02", titleKey: "cs.p2.title", subtitleKey: "cs.p2.subtitle", statValueKey: "99.99%", statLabelKey: "cs.p2.stat", description: "Praesent commodo cursus magna, vel scelerisque nisl consectetur et.", features: ["End-to-end AES-256 encryption for all transactions", "PCI-DSS Level 1 compliant payment processing", "Real-time fraud detection with ML anomaly scoring", "SOC 2 Type II certified infrastructure"] },
-  { id: "processing", icon: Cpu, num: "03", titleKey: "cs.p3.title", subtitleKey: "cs.p3.subtitle", statValueKey: "<200ms", statLabelKey: "cs.p3.stat", description: "Cras mattis consectetur purus sit amet fermentum.", features: ["Sub-200ms transaction processing latency", "Offline-capable edge nodes with automatic sync", "Load-balanced across 82 toll station clusters", "Auto-scaling during peak traffic hours"] },
-  { id: "analytics", icon: BarChart3, num: "04", titleKey: "cs.p4.title", subtitleKey: "cs.p4.subtitle", statValueKey: "12B+", statLabelKey: "cs.p4.stat", description: "Nullam id dolor id nibh ultricies vehicula ut id elit.", features: ["Real-time traffic flow visualization dashboards", "Predictive congestion modeling with 94% accuracy", "Revenue forecasting and toll optimization reports", "Custom API endpoints for government data partners"] },
-  { id: "integration", icon: Globe, num: "05", titleKey: "cs.p5.title", subtitleKey: "cs.p5.subtitle", statValueKey: "47", statLabelKey: "cs.p5.stat", description: "Maecenas sed diam eget risus varius blandit sit amet non magna.", features: ["RESTful APIs with comprehensive documentation", "Webhook-driven event system for real-time notifications", "Partner SDK for parking, fleet, and smart city platforms", "Interoperable with ASEAN e-toll standards"] },
+const pillars: { id: string; icon: typeof Lightbulb; num: string; titleKey: TranslationKey; subtitleKey: TranslationKey; statValueKey: string; statLabelKey: TranslationKey; description: string; features: string[] }[] = [
+  { id: "guide", icon: Lightbulb, num: "01", titleKey: "cs.p1.title", subtitleKey: "cs.p1.subtitle", statValueKey: "10+", statLabelKey: "cs.p1.stat", description: "Get personalized insurance recommendations based on your vehicle profile, driving habits, and risk exposure. We help you understand what coverage is mandatory, what's optional, and which add-ons offer the best value.", features: ["Intelligent recommendation engine for suitable insurance types", "Clear breakdown of mandatory vs optional coverage", "Add-on suggestions: flood, theft of parts, genuine repair", "Personalized options by budget and risk level"] },
+  { id: "compare", icon: Scale, num: "02", titleKey: "cs.p2.title", subtitleKey: "cs.p2.subtitle", statValueKey: "50+", statLabelKey: "cs.p2.stat", description: "Simplify the insurance comparison process with side-by-side policy analysis. We break down complex terms and present clear trade-offs so you can choose the best-fit plan.", features: ["Insurer and plan comparison at a glance", "Detailed breakdown of premium, deductible, exclusions, benefits", "Plain-language explanations of policy terms", "Best-fit recommendations: cheapest, best value, best protection"] },
+  { id: "claim", icon: FileCheck, num: "03", titleKey: "cs.p3.title", subtitleKey: "cs.p3.subtitle", statValueKey: "98%", statLabelKey: "cs.p3.stat", description: "Our AI-powered claim assistant guides you through incident reporting and document preparation. We generate personalized checklists and help you submit complete claim dossiers on the first try.", features: ["Step-by-step incident reporting guidance", "Insurer-specific claim requirement validation", "Dynamic auto-generated document checklist", "Claim dossier auto-building and submission support"] },
+  { id: "support", icon: LifeBuoy, num: "04", titleKey: "cs.p4.title", subtitleKey: "cs.p4.subtitle", statValueKey: "24/7", statLabelKey: "cs.p4.stat", description: "Stay informed after you submit your claim. Real-time tracking, smart notifications, and seamless connections to roadside assistance and repair services keep your insurance journey stress-free.", features: ["Real-time claim status tracking and updates", "Smart notifications for missing documents and next steps", "Direct connections to roadside assistance and garages", "Claim and policy history stored for future reference"] },
 ];
 
 export default function CoreServices() {
@@ -71,11 +71,6 @@ function PillarSection({ pillar, index }: { pillar: typeof pillars[0]; index: nu
                 <li key={fi} className="flex items-start gap-3 text-sm text-muted-foreground"><span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-primary shrink-0" />{f}</li>
               ))}
             </ul>
-            <Button variant="outline" size="sm" className="group active:scale-95 transition-transform border-border/50 hover:border-primary/30 hover:bg-primary/5" asChild>
-              <Link to={`/docs?topic=${pillar.id}`}>
-                {t("cs.learnMore")}<ArrowRight className="ml-1 w-3.5 h-3.5 transition-transform duration-200 group-hover:translate-x-1" />
-              </Link>
-            </Button>
           </div>
           <div ref={cardRef} className="reveal-3d flex-1 max-w-md w-full" style={{ transitionDelay: "150ms" }}>
             <div className="relative rounded-2xl border border-border/30 bg-card/60 p-8 md:p-10 overflow-hidden">
@@ -97,6 +92,17 @@ function PillarSection({ pillar, index }: { pillar: typeof pillars[0]; index: nu
 function BottomCTA() {
   const ref = useScrollReveal<HTMLDivElement>(0.2);
   const { t } = useLanguage();
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  const handleDashboardClick = () => {
+    if (user) {
+      navigate("/dashboard");
+    } else {
+      navigate("/sign-in");
+    }
+  };
+
   return (
     <div ref={ref} className="reveal-scale">
       <h2 className="font-display text-3xl md:text-4xl font-bold mb-4" style={{ textWrap: "balance" }}>
@@ -104,11 +110,8 @@ function BottomCTA() {
       </h2>
       <p className="text-muted-foreground text-sm md:text-base max-w-lg mx-auto mb-8 leading-relaxed" style={{ textWrap: "pretty" }}>{t("cs.bottomSubtitle")}</p>
       <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-        <Button size="lg" className="group active:scale-95 transition-transform text-sm px-8" asChild>
-          <a href="mailto:sales@vetc.vn">{t("cta.sales")}<ArrowRight className="ml-1 w-4 h-4 transition-transform duration-200 group-hover:translate-x-1" /></a>
-        </Button>
-        <Button variant="outline" size="lg" className="active:scale-95 transition-transform text-sm px-8 border-border/50 hover:border-primary/30 hover:bg-primary/5" asChild>
-          <Link to="/docs">{t("cta.docs")}</Link>
+        <Button size="lg" className="group active:scale-95 transition-transform text-sm px-8" onClick={handleDashboardClick}>
+          Go to Dashboard<ArrowRight className="ml-1 w-4 h-4 transition-transform duration-200 group-hover:translate-x-1" />
         </Button>
       </div>
     </div>

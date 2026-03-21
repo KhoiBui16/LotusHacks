@@ -1,11 +1,23 @@
 import { useScrollReveal } from "@/hooks/useScrollReveal";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { ArrowRight } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 export default function CTASection() {
   const ref = useScrollReveal<HTMLDivElement>();
   const { t } = useLanguage();
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  const handleDashboardClick = () => {
+    if (user) {
+      navigate("/dashboard");
+    } else {
+      navigate("/sign-in");
+    }
+  };
 
   return (
     <section id="contact" className="relative py-24 md:py-40">
@@ -21,12 +33,9 @@ export default function CTASection() {
             {t("cta.subtitle")}
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Button size="lg" className="group active:scale-95 transition-transform px-8">
-              {t("cta.sales")}
+            <Button size="lg" className="group active:scale-95 transition-transform px-8" onClick={handleDashboardClick}>
+              Go to Dashboard
               <ArrowRight className="ml-1 w-4 h-4 group-hover:translate-x-1 transition-transform" />
-            </Button>
-            <Button variant="outline" size="lg" className="active:scale-95 transition-transform px-8 border-border/50 hover:border-primary/30">
-              {t("cta.docs")}
             </Button>
           </div>
         </div>

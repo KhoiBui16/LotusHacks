@@ -1,15 +1,15 @@
 import { useScrollReveal } from "@/hooks/useScrollReveal";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { Radio, CreditCard, BarChart3, ShieldCheck, Smartphone, Network } from "lucide-react";
+import { Lightbulb, Scale, FileCheck, LifeBuoy, Zap, Shield } from "lucide-react";
 import { TranslationKey } from "@/i18n/translations";
 
-const featureKeys: { icon: typeof Radio; titleKey: TranslationKey; descKey: TranslationKey }[] = [
-  { icon: Radio, titleKey: "features.rfid.title", descKey: "features.rfid.desc" },
-  { icon: CreditCard, titleKey: "features.payment.title", descKey: "features.payment.desc" },
-  { icon: BarChart3, titleKey: "features.analytics.title", descKey: "features.analytics.desc" },
-  { icon: ShieldCheck, titleKey: "features.security.title", descKey: "features.security.desc" },
-  { icon: Smartphone, titleKey: "features.mobile.title", descKey: "features.mobile.desc" },
-  { icon: Network, titleKey: "features.network.title", descKey: "features.network.desc" },
+const featureKeys: { icon: typeof Lightbulb; titleKey: TranslationKey; descKey: TranslationKey }[] = [
+  { icon: Lightbulb, titleKey: "features.guide.title", descKey: "features.guide.desc" },
+  { icon: Scale, titleKey: "features.compare.title", descKey: "features.compare.desc" },
+  { icon: FileCheck, titleKey: "features.claim.title", descKey: "features.claim.desc" },
+  { icon: LifeBuoy, titleKey: "features.support.title", descKey: "features.support.desc" },
+  { icon: Zap, titleKey: "features.smart.title", descKey: "features.smart.desc" },
+  { icon: Shield, titleKey: "features.secure.title", descKey: "features.secure.desc" },
 ];
 
 export default function FeaturesSection() {

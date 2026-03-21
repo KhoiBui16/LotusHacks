@@ -57,7 +57,7 @@ export default function Navbar() {
             V
           </div>
           <span className="font-display font-semibold text-lg text-foreground tracking-tight">
-            VETC
+            VETC InsureAssist
           </span>
         </Link>
 

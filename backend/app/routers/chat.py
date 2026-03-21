@@ -1,14 +1,16 @@
 from datetime import datetime, timezone
 from typing import Annotated
+import os
+
 from fastapi import APIRouter, Depends, HTTPException, status
-from motor.motor_asyncio import AsyncIOMotorDatabase
 from bson import ObjectId
 from bson.errors import InvalidId
-import os
+from motor.motor_asyncio import AsyncIOMotorDatabase
+
 try:
-    import openai
+    from openai import OpenAI
 except ModuleNotFoundError:
-    openai = None
+    OpenAI = None
 
 from app.security.deps import get_current_user
 from app.db import get_db
@@ -23,9 +25,23 @@ from app.models.chat import (
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
-# Initialize OpenAI client
-if openai is not None:
-    openai.api_key = os.getenv("OPENAI_API_KEY")
+
+def _get_openai_client() -> OpenAI:
+    """Khởi tạo OpenAI client theo env hiện tại."""
+    if OpenAI is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Chat service is unavailable: openai package is not installed",
+        )
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Chat service is unavailable: OPENAI_API_KEY is not configured",
+        )
+
+    return OpenAI(api_key=api_key)
 
 
 async def generate_session_title(user_message: str) -> str:
@@ -125,17 +141,7 @@ async def send_message(
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ) -> ChatSessionDetail:
     """Send a message and get LLM response"""
-    if openai is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Chat service is unavailable: openai package is not installed",
-        )
-
-    if not os.getenv("OPENAI_API_KEY"):
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Chat service is unavailable: OPENAI_API_KEY is not configured",
-        )
+    client = _get_openai_client()
 
     try:
         session_obj_id = ObjectId(session_id)
@@ -163,16 +169,16 @@ async def send_message(
     
     # Generate LLM response
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+        response = client.chat.completions.create(
+            model=os.getenv("CHAT_LLM_MODEL", "gpt-4o-mini"),
             messages=[
                 {"role": msg.get("role", "user"), "content": msg.get("content", "")}
                 for msg in messages
             ],
             temperature=0.7,
         )
-        
-        assistant_content = response.choices[0].message.content
+
+        assistant_content = response.choices[0].message.content or ""
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

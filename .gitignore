@@ -10,12 +10,14 @@ build/
 __pycache__/
 *.py[cod]
 *$py.class
+.pytest_cache/
 venv/
 env/
 .env
 .venv/
 pip-log.txt
 pip-delete-this-directory.txt
+backend/app/data/chroma_db/
 
 # IDE
 .vscode/

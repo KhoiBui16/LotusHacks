@@ -1,72 +1,171 @@
-# LotusHacks Website Project
+# LotusHacks
 
-Chào mừng bạn đến với dự án website Hackathon của chúng tôi! Cấu trúc này được thiết kế để tối ưu hóa tốc độ phát triển và sự hợp tác linh hoạt trong môi trường Hackathon.
+Repo này đang được tích hợp theo hướng:
 
-## 📁 Cấu trúc thư mục (Directory Structure)
+- FE `Start Claim` và `Incident Intake` lấy dữ liệu thật từ `main`
+- workflow agent dùng dữ liệu 7 bước hiện có để quyết định `assisted_mode = yes/no`
+- downstream hiện tại của `main` được giữ nguyên:
+  - `assisted_mode = true` -> `/assisted-mode`
+  - `assisted_mode = false` -> `/chat`
 
-```text
-LotusHacks/
-├── frontend/          # Mã nguồn website (Vite + React)
-├── backend/           # Mã nguồn máy chủ (Python/FastAPI)
-├── shared/            # Các loại (types), hằng số (constants) và tiện ích (utils) dùng chung
-├── docs/              # Tài liệu dự án, bài thuyết trình (pitch deck), hình ảnh/video demo
-├── scripts/           # Các tập lệnh tiện ích cho xử lý dữ liệu, triển khai (deployment)
-├── .gitignore         # Danh sách các tệp và thư mục bị bỏ qua bởi Git
-└── README.md          # Tệp hướng dẫn này
+Phase hiện tại chưa mở rộng sang OCR/import policy tự động, dossier builder, submission router hay claim tracking đầy đủ.
+
+## Kiến trúc hiện tại
+
+### FE
+
+- `frontend/src/pages/StartClaim.tsx`
+  - lấy vehicle/policy thật
+  - tạo draft claim
+  - chuyển vào `IncidentIntake`
+- `frontend/src/pages/IncidentIntake.tsx`
+  - thu 7 bước input
+  - patch incident vào claim hiện tại
+  - gọi `POST /claims/{claim_id}/triage`
+  - route theo decision thật từ workflow agent
+
+### BE
+
+- `backend/app/routers/claims.py`
+  - nhận dữ liệu claim hiện có của `main`
+  - map sang `AgentIncidentInput`
+  - gọi Agent 1 để trả decision `assisted_mode`
+  - giữ nguyên contract response hiện có của `main`
+- `backend/app/agent/routers/workflow.py`
+  - router workflow 2 agent đầy đủ
+  - mount tại `/api/v1/agent/workflow`
+- `backend/app/agent/rag`
+  - index/retrieve policy context trên Zilliz
+
+## Workflow phase này
+
+### Agent 1
+
+Input lấy từ 7 bước hiện có:
+
+- `incident type`
+- `date`
+- `time`
+- `location_text`
+- `description`
+- `has_third_party`
+- `can_drive`
+- `needs_towing`
+- `has_injury`
+
+Input được làm giàu thêm từ vehicle/claim linked:
+
+- `insurer`
+- `policy_id`
+- `effective_date`
+- `expiry`
+- `plate`
+- `model`
+
+Output:
+
+- `assisted_mode = true` nếu case được phân loại phức tạp
+- `assisted_mode = false` nếu case có thể đi tiếp flow thường
+
+### Agent 2
+
+Đã có trong BE để dùng cho coverage pre-check phase sau:
+
+- policy validity
+- insurer-specific retrieval
+- exclusion / deductible / eligibility pre-check
+
+FE hiện tại của `main` chưa buộc phải dùng Agent 2 để đổi route, nên downstream chưa bị đụng.
+
+## RAG
+
+Nguyên tắc đang dùng:
+
+- Zilliz là vector backend
+- notebook chỉ dùng để tham khảo cách connect/query Zilliz
+- không dùng keyword taxonomy kiểu `CATEGORY_KEYWORDS` để gán chunk nghiệp vụ
+- chunk policy chỉ giữ metadata trung tính:
+  - `source`
+  - `insurer`
+  - `article`
+  - `chunk_index`
+
+Tài liệu policy mẫu hiện nằm ở:
+
+- `backend/app/agent/data/policy_baoviet.txt`
+- `backend/app/agent/data/policy_mic.txt`
+- `backend/app/agent/data/policy_pti.txt`
+
+## Local setup
+
+### 1. Backend env
+
+Sao chép:
+
+```powershell
+Copy-Item backend\.env.example backend\.env
 ```
 
-## 🛠️ Công nghệ đề xuất (Proposed Tech Stack)
+Các biến tối thiểu cần có:
 
-- **Frontend:** [Vite](https://vitejs.dev/) + [React](https://react.dev/) + TypeScript, [Tailwind CSS](https://tailwindcss.com/), [shadcn/ui](https://ui.shadcn.com/) (Radix UI), React Router, TanStack Query.
-- **Backend:** [FastAPI](https://fastapi.tiangolo.com/) (Python), [Uvicorn](https://www.uvicorn.org/) (ASGI server).
-- **Database:** [MongoDB](https://www.mongodb.com/) (NoSQL).
-- **AI/ML:** [OpenAI API](https://openai.com/api/), [LangChain](https://www.langchain.com/), [Hugging Face](https://huggingface.co/).
-- **Deployment:** [Vercel](https://vercel.com/) (Frontend/Next.js), [Railway](https://railway.app/) (Backend/DB).
+- `OPENAI_API_KEY`
+- `HF_TOKEN`
+- `ZILLIZ_URI`
+- `ZILLIZ_TOKEN`
 
-## 🚀 Bắt đầu (Getting Started)
+Bạn cũng có thể cấu hình Zilliz qua:
 
-1. **Frontend:**
-   ```bash
-   cd frontend
-   npm install
-   npm run dev
-   ```
+- `MILVUS_HOST`
+- `MILVUS_PORT`
 
-2. **Backend:**
-   ```bash
-   cd backend
-   conda create -n lotushacks-api python=3.11 -y
-   conda activate lotushacks-api
-   pip install -r requirements.txt
-   export MONGODB_URI="mongodb://localhost:27017"
-   export MONGODB_DB_NAME="lotushacks"
-   export JWT_SECRET="change-me"
-   export GOOGLE_CLIENT_ID="your-google-client-id"
-   uvicorn app.main:app --reload --port 8000
-   ```
-   *Swagger UI:* `http://localhost:8000/docs`  
-   *ReDoc:* `http://localhost:8000/redoc`
+### 2. Backend install
 
-## 🗄️ MongoDB setup
-
-```bash
-mongosh "mongodb://localhost:27017" database/mongo-init.js
+```powershell
+cd backend
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
 ```
 
-3. **Cài đặt các công cụ khác:**
-   - Cài đặt [Prisma](https://www.prisma.io/) nếu bạn cần ORM.
-   - Cài đặt [Clerk](https://clerk.com/) hoặc [NextAuth.js](https://next-auth.js.org/) cho xác thực người dùng.
+### 3. Index policy lên Zilliz
 
-## 📝 Ghi chú quan trọng (Important Notes)
+```powershell
+cd backend
+.\venv\Scripts\python.exe -m app.agent.rag.index_policies
+```
 
-- Luôn cập nhật `.gitignore` để không đẩy các tệp chứa thông tin nhạy cảm (`.env`, `node_modules`, `venv`) lên GitHub.
-- Tập trung vào MVP (Minimum Viable Product) trước, sau đó mới thêm các tính năng bổ sung.
-- Sử dụng các thư viện UI sẵn có để tiết kiệm thời gian thiết kế giao diện.
+### 4. Chạy backend
 
----
-## 👥 Thành viên nhóm (Team Members)
+```powershell
+cd backend
+.\venv\Scripts\uvicorn.exe app.main:app --reload --port 8000
+```
 
-- Đinh Việt Phát - Project Manager
-- Nguyễn Võ Ngọc Bảo - Fullstack Developer
-- Phan Quốc Đại Sơn - AI/ML Developer
-- Bùi Nhật Anh Khôi - AI/ML Developer
+### 5. Chạy frontend
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+## Test
+
+Backend:
+
+```powershell
+cd backend
+.\venv\Scripts\python.exe -m pytest tests/test_agent -q
+```
+
+Frontend smoke check:
+
+```powershell
+cd frontend
+npm run build
+```
+
+## Tài liệu thêm
+
+- `AI_SERVICES.md`
+- `docs/AI_SERVICES.md`

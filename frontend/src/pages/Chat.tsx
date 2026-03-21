@@ -14,6 +14,7 @@ import type { ChatSessionListItem, ChatSession } from "@/lib/api";
 
 export default function Chat() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { toast } = useToast();
   const qc = useQueryClient();
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
@@ -152,7 +153,7 @@ export default function Chat() {
             </Button>
             <Button
               className="w-full gap-2"
-              onClick={() => createSessionMutation.mutate()}
+              onClick={() => createSessionMutation.mutate({})}
               disabled={createSessionMutation.isPending}
             >
               <Plus className="w-4 h-4" />

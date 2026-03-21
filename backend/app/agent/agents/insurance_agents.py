@@ -363,7 +363,6 @@ class InsuranceAgents:
 
         Pipeline:
             1. Rule-based pre-filter (fast path, không tốn API call):
-               - injuries=True → phức tạp
                - third_party=True → phức tạp
                - highway_incident=True → phức tạp
                - number_of_vehicles_involved>=3 hoặc mô tả liên hoàn → phức tạp
@@ -382,8 +381,6 @@ class InsuranceAgents:
 
         # ── STEP 1: Rule-based pre-filter (fast path, skip LLM) ──
         triggered_rules = []
-        if incident.injuries:
-            triggered_rules.append("Có người bị thương hoặc tử vong")
         if incident.third_party_involved:
             triggered_rules.append("Có bên thứ ba liên quan")
         if getattr(incident, 'highway_incident', None):

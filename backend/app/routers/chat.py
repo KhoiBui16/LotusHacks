@@ -19,6 +19,7 @@ from app.models.chat import (
     ChatMessageRequest,
     ChatResponse,
     ChatSession,
+    ChatSessionCreateRequest,
     ChatSessionDetail,
     ChatSessionListItem,
 )
@@ -54,14 +55,65 @@ async def generate_session_title(user_message: str) -> str:
 
 @router.post("/sessions", response_model=ChatSessionListItem)
 async def create_chat_session(
+    payload: ChatSessionCreateRequest | None,
     user: Annotated[UserInDB, Depends(get_current_user)],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ) -> ChatSessionListItem:
     """Create a new chat session"""
+    payload = payload or ChatSessionCreateRequest()
+    user_oid = ObjectId(user.id)
+
+    claim_id = payload.claim_id.strip() if payload.claim_id else None
+    workflow_stage = payload.workflow_stage.strip() if payload.workflow_stage else None
+    context_seed = payload.context_seed.strip() if payload.context_seed else None
+
+    if claim_id:
+        try:
+            claim_obj_id = ObjectId(claim_id)
+        except InvalidId:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid claim id")
+
+        claim = await db["claims"].find_one({"_id": claim_obj_id, "user_id": user_oid}, {"_id": 1})
+        if not claim:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
+
+        existing = await db["chat_sessions"].find_one(
+            {
+                "user_id": user_oid,
+                "claim_id": claim_id,
+                "workflow_stage": workflow_stage or "claim_guidance",
+            }
+        )
+        if existing:
+            updates = {"updated_at": datetime.now(timezone.utc)}
+            if context_seed:
+                updates["context_seed"] = context_seed
+            if payload.title:
+                updates["title"] = payload.title
+
+            if len(updates) > 1:
+                await db["chat_sessions"].update_one(
+                    {"_id": existing["_id"], "user_id": user_oid},
+                    {"$set": updates},
+                )
+                existing.update(updates)
+
+            return ChatSessionListItem(
+                id=str(existing["_id"]),
+                title=existing.get("title", "New Chat"),
+                updated_at=existing.get("updated_at", existing.get("created_at")).isoformat(),
+                claim_id=existing.get("claim_id"),
+                workflow_stage=existing.get("workflow_stage"),
+            )
+
     now = datetime.now(timezone.utc)
     session_doc = {
-        "user_id": ObjectId(user.id),
-        "title": "New Chat",
+        "user_id": user_oid,
+        "title": payload.title or "New Chat",
+        "claim_id": claim_id,
+        "workflow_stage": workflow_stage,
+        "context_seed": context_seed,
+        "seeded_from_eligibility": payload.seeded_from_eligibility,
         "messages": [],
         "created_at": now,
         "updated_at": now,
@@ -70,8 +122,10 @@ async def create_chat_session(
     
     return ChatSessionListItem(
         id=str(result.inserted_id),
-        title="New Chat",
+        title=session_doc["title"],
         updated_at=now.isoformat(),
+        claim_id=claim_id,
+        workflow_stage=workflow_stage,
     )
 
 
@@ -90,6 +144,8 @@ async def list_chat_sessions(
             id=str(s["_id"]),
             title=s.get("title", "New Chat"),
             updated_at=s.get("updated_at", s.get("created_at")).isoformat(),
+            claim_id=s.get("claim_id"),
+            workflow_stage=s.get("workflow_stage"),
         )
         for s in sessions
     ]
@@ -127,6 +183,8 @@ async def get_chat_session(
     return ChatSessionDetail(
         id=str(session["_id"]),
         title=session.get("title", "Chat"),
+        claim_id=session.get("claim_id"),
+        workflow_stage=session.get("workflow_stage"),
         messages=messages,
         created_at=session.get("created_at", "").isoformat() if isinstance(session.get("created_at"), datetime) else session.get("created_at", ""),
         updated_at=session.get("updated_at", "").isoformat() if isinstance(session.get("updated_at"), datetime) else session.get("updated_at", ""),
@@ -169,12 +227,18 @@ async def send_message(
     
     # Generate LLM response
     try:
+        llm_messages = []
+        context_seed = session.get("context_seed")
+        if context_seed:
+            llm_messages.append({"role": "system", "content": context_seed})
+        llm_messages.extend(
+            {"role": msg.get("role", "user"), "content": msg.get("content", "")}
+            for msg in messages
+        )
+
         response = client.chat.completions.create(
             model=os.getenv("CHAT_LLM_MODEL", "gpt-4o-mini"),
-            messages=[
-                {"role": msg.get("role", "user"), "content": msg.get("content", "")}
-                for msg in messages
-            ],
+            messages=llm_messages,
             temperature=0.7,
         )
 
@@ -225,6 +289,8 @@ async def send_message(
     return ChatSessionDetail(
         id=str(updated_session["_id"]),
         title=updated_session.get("title", "Chat"),
+        claim_id=updated_session.get("claim_id"),
+        workflow_stage=updated_session.get("workflow_stage"),
         messages=msg_list,
         created_at=updated_session.get("created_at", "").isoformat() if isinstance(updated_session.get("created_at"), datetime) else updated_session.get("created_at", ""),
         updated_at=updated_session.get("updated_at", "").isoformat() if isinstance(updated_session.get("updated_at"), datetime) else updated_session.get("updated_at", ""),

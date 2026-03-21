@@ -33,3 +33,11 @@ async def get_current_user(
     if not doc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     return UserInDB.from_mongo(doc)
+
+
+async def get_current_admin(
+    user: Annotated[UserInDB, Depends(get_current_user)],
+) -> UserInDB:
+    if user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin privileges required")
+    return user

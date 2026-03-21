@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import Navbar from "@/components/landing/Navbar";
@@ -9,21 +10,46 @@ import {
   Car, ShieldCheck, AlertTriangle, FileText, Bell, ArrowRight,
   Clock, CheckCircle2, XCircle, Plus, ChevronRight
 } from "lucide-react";
+import { api } from "@/lib/api";
+import type { ClaimListItem, NotificationItem, VehicleSummary } from "@/lib/api";
+import AdminDashboard from "./AdminDashboard";
 
-const mockVehicle = { plate: "51A-123.45", model: "Toyota Camry 2023", policyLinked: true, policyId: "POL-2024-00891", insurer: "Bảo Việt" };
-const mockClaims = [
-  { id: "CLM-001", type: "Collision", date: "2024-12-15", status: "processing", vehicle: "51A-123.45" },
-  { id: "CLM-002", type: "Glass Breakage", date: "2024-11-28", status: "approved", vehicle: "51A-123.45" },
-  { id: "CLM-003", type: "Scratch", date: "2024-10-10", status: "closed", vehicle: "30H-567.89" },
-];
-const mockNotifications = [
-  { id: 1, text: "CLM-001 requires additional documents", textVi: "CLM-001 cần bổ sung tài liệu", time: "2 hours ago", timeVi: "2 giờ trước", unread: true },
-  { id: 2, text: "CLM-002 has been approved", textVi: "CLM-002 đã được duyệt", time: "1 day ago", timeVi: "1 ngày trước", unread: false },
-];
+function timeAgo(iso: string) {
+  const ms = Date.now() - new Date(iso).getTime();
+  const mins = Math.max(0, Math.floor(ms / 60000));
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} hours ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} days ago`;
+}
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const { t, lang } = useLanguage();
+  const { t } = useLanguage();
+
+  if (user?.role === "admin") {
+    return <AdminDashboard />;
+  }
+
+  const vehiclesQuery = useQuery<VehicleSummary[]>({
+    queryKey: ["vehicles"],
+    queryFn: api.vehicles.list,
+  });
+
+  const claimsQuery = useQuery<ClaimListItem[]>({
+    queryKey: ["claims", "dashboard"],
+    queryFn: () => api.claims.list({}),
+  });
+
+  const notificationsQuery = useQuery<NotificationItem[]>({
+    queryKey: ["notifications", "dashboard"],
+    queryFn: () => api.notifications.list("all"),
+  });
+
+  const activeVehicle = (vehiclesQuery.data ?? [])[0];
+  const recentClaims = (claimsQuery.data ?? []).slice(0, 3);
+  const recentNotifications = (notificationsQuery.data ?? []).slice(0, 3);
 
   const statusConfig: Record<string, { label: string; color: string; icon: React.ElementType }> = {
     processing: { label: t("dash.status.processing"), color: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30", icon: Clock },
@@ -31,6 +57,7 @@ export default function Dashboard() {
     rejected: { label: t("dash.status.rejected"), color: "bg-destructive/20 text-destructive border-destructive/30", icon: XCircle },
     closed: { label: t("dash.status.closed"), color: "bg-muted-foreground/20 text-muted-foreground border-muted-foreground/30", icon: CheckCircle2 },
     draft: { label: t("dash.status.draft"), color: "bg-secondary text-muted-foreground border-border", icon: FileText },
+    "needs-docs": { label: "Needs Docs", color: "bg-orange-500/20 text-orange-400 border-orange-500/30", icon: AlertTriangle },
   };
 
   return (
@@ -50,27 +77,38 @@ export default function Dashboard() {
               <CardTitle className="text-lg flex items-center gap-2"><Car className="w-5 h-5 text-primary" /> {t("dash.activeVehicle")}</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="space-y-1">
-                <p className="text-xl font-display font-bold text-foreground">{mockVehicle.plate}</p>
-                <p className="text-sm text-muted-foreground">{mockVehicle.model}</p>
-                <div className="flex items-center gap-2 mt-2">
-                  {mockVehicle.policyLinked ? (
-                    <Badge variant="outline" className="border-primary/40 text-primary bg-primary/10 gap-1">
-                      <ShieldCheck className="w-3 h-3" /> {t("dash.policyLinked")}
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline" className="border-destructive/40 text-destructive bg-destructive/10 gap-1">
-                      <AlertTriangle className="w-3 h-3" /> {t("dash.noPolicy")}
-                    </Badge>
-                  )}
+              {activeVehicle ? (
+                <>
+                  <div className="space-y-1">
+                    <p className="text-xl font-display font-bold text-foreground">{activeVehicle.plate || "—"}</p>
+                    <p className="text-sm text-muted-foreground">{activeVehicle.model} {activeVehicle.year}</p>
+                    <div className="flex items-center gap-2 mt-2">
+                      {activeVehicle.policy_linked ? (
+                        <Badge variant="outline" className="border-primary/40 text-primary bg-primary/10 gap-1">
+                          <ShieldCheck className="w-3 h-3" /> {t("dash.policyLinked")}
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="border-destructive/40 text-destructive bg-destructive/10 gap-1">
+                          <AlertTriangle className="w-3 h-3" /> {t("dash.noPolicy")}
+                        </Badge>
+                      )}
+                    </div>
+                    {activeVehicle.policy_linked && (
+                      <p className="text-xs text-muted-foreground mt-1">{activeVehicle.insurer || "—"} · {activeVehicle.policy_id || "—"}</p>
+                    )}
+                  </div>
+                  <Button variant="outline" size="sm" asChild>
+                    <Link to="/vehicles">{t("dash.manageVehicles")} <ChevronRight className="w-4 h-4" /></Link>
+                  </Button>
+                </>
+              ) : (
+                <div className="w-full flex items-center justify-between gap-3">
+                  <p className="text-sm text-muted-foreground">No vehicle found. Add your first vehicle to continue.</p>
+                  <Button size="sm" asChild>
+                    <Link to="/vehicles#add"><Plus className="w-4 h-4 mr-1" /> {t("vh.addVehicle")}</Link>
+                  </Button>
                 </div>
-                {mockVehicle.policyLinked && (
-                  <p className="text-xs text-muted-foreground mt-1">{mockVehicle.insurer} · {mockVehicle.policyId}</p>
-                )}
-              </div>
-              <Button variant="outline" size="sm" asChild>
-                <Link to="/vehicles">{t("dash.manageVehicles")} <ChevronRight className="w-4 h-4" /></Link>
-              </Button>
+              )}
             </CardContent>
           </Card>
 
@@ -100,22 +138,26 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {mockClaims.map((claim) => {
-                  const sc = statusConfig[claim.status] || statusConfig.draft;
-                  const Icon = sc.icon;
-                  return (
-                    <Link key={claim.id} to={`/claim-tracking/${claim.id}`} className="flex items-center justify-between p-3 rounded-lg bg-secondary/40 hover:bg-secondary/70 transition-colors group">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center shrink-0"><Icon className="w-4 h-4 text-muted-foreground" /></div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-foreground truncate">{claim.id} · {claim.type}</p>
-                          <p className="text-xs text-muted-foreground">{claim.vehicle} · {claim.date}</p>
+                {recentClaims.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No claim yet.</p>
+                ) : (
+                  recentClaims.map((claim) => {
+                    const sc = statusConfig[claim.status] || statusConfig.draft;
+                    const Icon = sc.icon;
+                    return (
+                      <Link key={claim.id} to={`/claim-tracking/${claim.id}`} className="flex items-center justify-between p-3 rounded-lg bg-secondary/40 hover:bg-secondary/70 transition-colors group">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center shrink-0"><Icon className="w-4 h-4 text-muted-foreground" /></div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-foreground truncate">{claim.id.slice(-8)} · {claim.type}</p>
+                            <p className="text-xs text-muted-foreground">{claim.vehicle_plate || "—"} · {claim.date}</p>
+                          </div>
                         </div>
-                      </div>
-                      <Badge variant="outline" className={`shrink-0 text-xs ${sc.color}`}>{sc.label}</Badge>
-                    </Link>
-                  );
-                })}
+                        <Badge variant="outline" className={`shrink-0 text-xs ${sc.color}`}>{sc.label}</Badge>
+                      </Link>
+                    );
+                  })
+                )}
               </div>
             </CardContent>
           </Card>
@@ -127,12 +169,17 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {mockNotifications.map((n) => (
-                  <div key={n.id} className={`p-3 rounded-lg text-sm ${n.unread ? "bg-primary/5 border border-primary/20" : "bg-secondary/40"}`}>
-                    <p className={`${n.unread ? "text-foreground font-medium" : "text-muted-foreground"}`}>{lang === "vi" ? n.textVi : n.text}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{lang === "vi" ? n.timeVi : n.time}</p>
-                  </div>
-                ))}
+                {recentNotifications.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No notification.</p>
+                ) : (
+                  recentNotifications.map((n) => (
+                    <div key={n.id} className={`p-3 rounded-lg text-sm ${!n.read ? "bg-primary/5 border border-primary/20" : "bg-secondary/40"}`}>
+                      <p className={`${!n.read ? "text-foreground font-medium" : "text-muted-foreground"}`}>{n.title}</p>
+                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{n.message}</p>
+                      <p className="text-xs text-muted-foreground mt-1">{timeAgo(n.created_at)}</p>
+                    </div>
+                  ))
+                )}
               </div>
             </CardContent>
           </Card>
@@ -141,9 +188,10 @@ export default function Dashboard() {
         <Card className="border-border bg-card">
           <CardHeader className="pb-3"><CardTitle className="text-lg">{t("dash.quickActions")}</CardTitle></CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
               {[
                 { label: t("dash.startClaim"), icon: Plus, to: "/start-claim" },
+                { label: t("vh.addVehicle"), icon: Car, to: "/vehicles#add" },
                 { label: t("dash.myClaims"), icon: FileText, to: "/claims" },
                 { label: t("dash.vehicles"), icon: Car, to: "/vehicles" },
                 { label: t("dash.settings"), icon: Bell, to: "/settings" },

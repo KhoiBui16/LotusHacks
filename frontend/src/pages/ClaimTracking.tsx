@@ -1,16 +1,18 @@
 import { useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLanguage } from "@/contexts/LanguageContext";
 import Navbar from "@/components/landing/Navbar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CheckCircle2, Clock, FileText, Upload, AlertTriangle, XCircle, ChevronLeft, ArrowRight, MessageSquare, Phone } from "lucide-react";
+import { CheckCircle2, Clock, FileText, Upload, AlertTriangle, XCircle, ChevronLeft, ArrowRight, MessageSquare, Phone, Trash2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { ApiError } from "@/lib/apiClient";
 import type { Claim, ClaimDocument, ClaimTimelineItem } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function ClaimTracking() {
   const { id } = useParams();
@@ -18,22 +20,24 @@ export default function ClaimTracking() {
   const { t } = useLanguage();
   const [tab, setTab] = useState("tracking");
   const claimId = id ?? "";
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
 
   const claimQuery = useQuery<Claim, ApiError>({
     queryKey: ["claim", claimId],
-    queryFn: () => api.claims.get(claimId),
+    queryFn: () => (isAdmin ? api.admin.getClaim(claimId) : api.claims.get(claimId)),
     enabled: Boolean(claimId),
   });
 
   const timelineQuery = useQuery<ClaimTimelineItem[], ApiError>({
     queryKey: ["claim-timeline", claimId],
-    queryFn: () => api.claims.timeline(claimId),
+    queryFn: () => (isAdmin ? api.admin.getClaimTimeline(claimId) : api.claims.timeline(claimId)),
     enabled: Boolean(claimId),
   });
 
   const documentsQuery = useQuery<ClaimDocument[], ApiError>({
     queryKey: ["claim-documents", claimId],
-    queryFn: () => api.claims.documents(claimId),
+    queryFn: () => (isAdmin ? api.admin.getClaimDocuments(claimId) : api.claims.documents(claimId)),
     enabled: Boolean(claimId),
   });
 
@@ -72,7 +76,7 @@ export default function ClaimTracking() {
           </Card>
         ) : null}
 
-        {missingDocs.length > 0 && (
+        {!isAdmin && missingDocs.length > 0 && (
           <Card className="border-yellow-500/30 bg-yellow-500/5">
             <CardContent className="py-3 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
@@ -139,7 +143,7 @@ export default function ClaimTracking() {
 
             <Card className="border-border bg-card">
               <CardContent className="py-4 flex flex-col sm:flex-row gap-3">
-                <Button variant="outline" className="flex-1 gap-2"><MessageSquare className="w-4 h-4" /> {t("ct.chatSupport")}</Button>
+                <Button variant="outline" className="flex-1 gap-2" asChild><a href="mailto:support@vetc.vn"><MessageSquare className="w-4 h-4" /> {t("ct.chatSupport")}</a></Button>
                 <Button variant="outline" className="flex-1 gap-2" asChild><a href="tel:1900xxxx"><Phone className="w-4 h-4" /> {t("ct.callHotline")}</a></Button>
               </CardContent>
             </Card>
@@ -155,23 +159,27 @@ export default function ClaimTracking() {
                 </CardContent>
               </Card>
             )}
-            <Card className="border-primary/30 bg-primary/5 hidden">
-              <CardContent className="py-6 space-y-3">
-                <div className="flex items-center gap-2"><CheckCircle2 className="w-6 h-6 text-primary" /><h3 className="text-lg font-semibold text-foreground">{t("ct.approved")}</h3></div>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div><span className="text-muted-foreground">{t("ct.amount")}</span> <span className="text-foreground font-semibold">15,000,000 VND</span></div>
-                  <div><span className="text-muted-foreground">{t("ct.payment")}</span> <span className="text-foreground">Bank Transfer</span></div>
-                  <div><span className="text-muted-foreground">{t("ct.eta")}</span> <span className="text-foreground">5-7 business days</span></div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="border-destructive/30 bg-destructive/5 hidden">
-              <CardContent className="py-6 space-y-3">
-                <div className="flex items-center gap-2"><XCircle className="w-6 h-6 text-destructive" /><h3 className="text-lg font-semibold text-foreground">{t("ct.rejected")}</h3></div>
-                <p className="text-sm text-muted-foreground">{t("ct.rejectReason")}</p>
-                <Button variant="outline" size="sm">{t("ct.appeal")} <ArrowRight className="w-4 h-4 ml-1" /></Button>
-              </CardContent>
-            </Card>
+            {claimStatus === "approved" && (
+              <Card className="border-primary/30 bg-primary/5">
+                <CardContent className="py-6 space-y-3">
+                  <div className="flex items-center gap-2"><CheckCircle2 className="w-6 h-6 text-primary" /><h3 className="text-lg font-semibold text-foreground">{t("ct.approved")}</h3></div>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div><span className="text-muted-foreground">{t("ct.amount")}</span> <span className="text-foreground font-semibold">{claimQuery.data?.amount_value ?? "-"} {claimQuery.data?.amount_currency ?? ""}</span></div>
+                    <div><span className="text-muted-foreground">{t("ct.payment")}</span> <span className="text-foreground">Bank Transfer</span></div>
+                    <div><span className="text-muted-foreground">{t("ct.eta")}</span> <span className="text-foreground">5-7 business days</span></div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+            {claimStatus === "rejected" && (
+              <Card className="border-destructive/30 bg-destructive/5">
+                <CardContent className="py-6 space-y-3">
+                  <div className="flex items-center gap-2"><XCircle className="w-6 h-6 text-destructive" /><h3 className="text-lg font-semibold text-foreground">{t("ct.rejected")}</h3></div>
+                  <p className="text-sm text-muted-foreground">{t("ct.rejectReason")}</p>
+                  <Button variant="outline" size="sm" onClick={() => navigate(`/claim-appeal/${claimId}`)}>{t("ct.appeal")} <ArrowRight className="w-4 h-4 ml-1" /></Button>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
         </Tabs>
       </main>

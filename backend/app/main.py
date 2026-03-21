@@ -3,11 +3,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import close_db, init_db
 from app.routers.auth import router as auth_router
+from app.routers.admin import router as admin_router
 from app.routers.claims import router as claims_router
 from app.routers.me import router as me_router
 from app.routers.notifications import router as notifications_router
 from app.routers.settings import router as settings_router
 from app.routers.uploads import router as uploads_router
+from app.routers.chat import router as chat_router
 from app.routers.vehicles import router as vehicles_router
 
 app = FastAPI(
@@ -18,23 +20,20 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 app.include_router(auth_router)
+app.include_router(admin_router)
 app.include_router(me_router)
 app.include_router(vehicles_router)
 app.include_router(claims_router)
 app.include_router(uploads_router)
 app.include_router(notifications_router)
+app.include_router(chat_router)
 app.include_router(settings_router)
 
 

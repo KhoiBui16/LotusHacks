@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -6,16 +6,21 @@ import Navbar from "@/components/landing/Navbar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { Car, ShieldCheck, AlertTriangle, Upload, ArrowRight, CheckCircle2, ChevronLeft } from "lucide-react";
 import { api } from "@/lib/api";
 import { ApiError } from "@/lib/apiClient";
+import { useAuth } from "@/contexts/AuthContext";
+
+function claimIdOf(claim: unknown): string {
+  const anyClaim = claim as { id?: string; _id?: string };
+  return anyClaim?.id || anyClaim?._id || "";
+}
 
 export default function StartClaim() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { t } = useLanguage();
   const [selectedVehicle, setSelectedVehicle] = useState<string | null>(null);
-  const [showImport, setShowImport] = useState(false);
 
   const vehiclesQuery = useQuery({
     queryKey: ["vehicles"],
@@ -46,10 +51,22 @@ export default function StartClaim() {
         insurer: vehicle?.insurer ?? undefined,
       }),
     onSuccess: (claim) => {
-      if (claim?.id) sessionStorage.setItem("activeClaimId", claim.id);
-      navigate("/incident-intake");
+      const createdId = claimIdOf(claim);
+      if (createdId) sessionStorage.setItem("activeClaimId", createdId);
+      if (selectedVehicle) sessionStorage.setItem("activeVehicleId", selectedVehicle);
+      if (vehicle?.policyLinked) {
+        navigate("/incident-intake");
+      } else {
+        navigate("/policy-import");
+      }
     },
   });
+
+  useEffect(() => {
+    if (user?.role === "admin") {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [navigate, user?.role]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -72,7 +89,7 @@ export default function StartClaim() {
             ) : null}
 
             {vehicles.map((v) => (
-              <Card key={v.id} className={`cursor-pointer transition-all border-2 ${selectedVehicle === v.id ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`} onClick={() => { setSelectedVehicle(v.id); setShowImport(false); }}>
+              <Card key={v.id} className={`cursor-pointer transition-all border-2 ${selectedVehicle === v.id ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`} onClick={() => { setSelectedVehicle(v.id); sessionStorage.setItem("activeVehicleId", v.id); }}>
                 <CardContent className="flex items-center justify-between py-4">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center"><Car className="w-5 h-5 text-primary" /></div>
@@ -114,19 +131,7 @@ export default function StartClaim() {
                 <CardContent className="py-4 space-y-3">
                   <div className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-yellow-400" /><span className="font-semibold text-foreground">{t("sc.noPolicyLinked")}</span></div>
                   <p className="text-sm text-muted-foreground">{t("sc.noPolicyDesc")}</p>
-                  {!showImport ? (
-                    <Button variant="outline" size="sm" onClick={() => setShowImport(true)}><Upload className="w-4 h-4 mr-1" /> {t("sc.importPolicy")}</Button>
-                  ) : (
-                    <div className="space-y-3 animate-in fade-in duration-200">
-                      <Input placeholder={t("sc.enterPolicy")} />
-                      <p className="text-xs text-muted-foreground">{t("sc.orUpload")}</p>
-                      <div className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-primary/40 transition-colors cursor-pointer">
-                        <Upload className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-                        <p className="text-sm text-muted-foreground">{t("sc.dropFile")}</p>
-                      </div>
-                      <Button size="sm">{t("sc.linkPolicy")}</Button>
-                    </div>
-                  )}
+                  <Button variant="outline" size="sm" onClick={() => createClaim.mutate()} disabled={createClaim.isPending}><Upload className="w-4 h-4 mr-1" /> {t("sc.importPolicy")}</Button>
                 </CardContent>
               </Card>
             )}

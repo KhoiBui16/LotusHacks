@@ -14,6 +14,7 @@ export default function ReviewSubmit() {
   const navigate = useNavigate();
   const { t } = useLanguage();
   const [consent, setConsent] = useState(false);
+  const [channel, setChannel] = useState<"api" | "email" | "portal">("api");
   const [submitting, setSubmitting] = useState(false);
   const claimId = sessionStorage.getItem("activeClaimId") || "";
 
@@ -30,7 +31,11 @@ export default function ReviewSubmit() {
   });
 
   const submitMutation = useMutation({
-    mutationFn: () => api.claims.submit(claimId),
+    mutationFn: async () => {
+      await api.claims.dossier(claimId);
+      await api.claims.submitRouter(claimId, { channel });
+      return api.claims.submit(claimId);
+    },
     onSuccess: () => {
       navigate(`/claim-tracking/${claimId}`);
     },
@@ -108,9 +113,17 @@ export default function ReviewSubmit() {
             <label className="flex items-start gap-3 cursor-pointer">
               <Checkbox checked={consent} onCheckedChange={(c) => setConsent(c === true)} className="mt-0.5" />
               <span className="text-sm text-muted-foreground leading-relaxed">
-                {t("rv.consent")} <button className="text-primary underline underline-offset-2">{t("rv.terms")}</button>.
+                {t("rv.consent")} <button type="button" className="text-primary underline underline-offset-2" onClick={() => navigate("/terms")}>{t("rv.terms")}</button>.
               </span>
             </label>
+            <div className="mt-4 space-y-2">
+              <p className="text-sm text-muted-foreground">Submission channel</p>
+              <div className="flex gap-2">
+                <Button type="button" variant={channel === "api" ? "default" : "outline"} size="sm" onClick={() => setChannel("api")}>API</Button>
+                <Button type="button" variant={channel === "email" ? "default" : "outline"} size="sm" onClick={() => setChannel("email")}>Email</Button>
+                <Button type="button" variant={channel === "portal" ? "default" : "outline"} size="sm" onClick={() => setChannel("portal")}>Portal</Button>
+              </div>
+            </div>
           </CardContent>
         </Card>
 

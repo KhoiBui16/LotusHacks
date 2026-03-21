@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { Link, useNavigate } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLanguage } from "@/contexts/LanguageContext";
 import Navbar from "@/components/landing/Navbar";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,8 @@ import {
 import { api } from "@/lib/api";
 import { ApiError } from "@/lib/apiClient";
 import type { VehicleDetail, VehicleSummary } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface VehicleData {
   id: string;
@@ -116,8 +118,47 @@ function InfoRow({ label, value, icon: Icon }: { label: string; value: string | 
 }
 
 export default function Vehicles() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const [selected, setSelected] = useState<string | null>(null);
+  const [showAddVehicle, setShowAddVehicle] = useState(false);
+  const [showLinkPolicy, setShowLinkPolicy] = useState(false);
+  const [policyForm, setPolicyForm] = useState({ policyId: "", insurer: "", effectiveDate: "", expiry: "" });
+  const [newVehicle, setNewVehicle] = useState({
+    noPlateYet: false,
+    plate: "",
+    model: "",
+    year: String(new Date().getFullYear()),
+    color: "",
+    vehicleType: "Sedan",
+  });
   const { t } = useLanguage();
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  useEffect(() => {
+    if (user?.role === "admin") {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [navigate, user?.role]);
+
+  const getApiErrorMessage = (err: unknown, fallback: string) => {
+    if (err instanceof ApiError) {
+      if (typeof err.details === "object" && err.details && "detail" in (err.details as Record<string, unknown>)) {
+        const detail = (err.details as Record<string, unknown>).detail;
+        if (typeof detail === "string" && detail.trim()) return detail;
+        if (Array.isArray(detail) && detail.length > 0) {
+          const first = detail[0] as Record<string, unknown>;
+          const msg = typeof first?.msg === "string" ? first.msg : null;
+          const loc = Array.isArray(first?.loc) ? String(first.loc[first.loc.length - 1] ?? "field") : "field";
+          if (msg) return `${loc}: ${msg}`;
+        }
+      }
+      if (err.message) return err.message;
+    }
+    if (err instanceof Error && err.message) return err.message;
+    return fallback;
+  };
 
   const vehiclesQuery = useQuery<VehicleSummary[], ApiError>({
     queryKey: ["vehicles"],
@@ -132,8 +173,87 @@ export default function Vehicles() {
   }, [vehicles]);
 
   useEffect(() => {
+    if (window.location.hash === "#add") {
+      setShowAddVehicle(true);
+    }
+  }, []);
+
+  useEffect(() => {
     if (!selected && vehicles.length > 0) setSelected(vehicles[0].id);
   }, [selected, vehicles]);
+
+  const addVehicleMutation = useMutation({
+    mutationFn: async () => {
+      const model = newVehicle.model.trim();
+      const color = newVehicle.color.trim();
+      const vehicleType = newVehicle.vehicleType.trim();
+      const plate = newVehicle.plate.trim();
+      const year = Number(newVehicle.year);
+
+      if (!newVehicle.noPlateYet && !plate) {
+        throw new Error("Plate number is required unless 'No plate yet' is enabled.");
+      }
+      if (!Number.isFinite(year) || year < 1900 || year > 2100) {
+        throw new Error("Year must be between 1900 and 2100.");
+      }
+      if (!model || !color || !vehicleType) {
+        throw new Error("Model, color, and vehicle type are required.");
+      }
+
+      const payload = {
+        no_plate_yet: newVehicle.noPlateYet,
+        plate: newVehicle.noPlateYet ? null : plate,
+        model,
+        year,
+        color,
+        vehicle_type: vehicleType,
+      };
+      return api.vehicles.create(payload);
+    },
+    onSuccess: async (created) => {
+      await qc.invalidateQueries({ queryKey: ["vehicles"] });
+      setSelected(created.id);
+      setShowAddVehicle(false);
+      setNewVehicle({
+        noPlateYet: false,
+        plate: "",
+        model: "",
+        year: String(new Date().getFullYear()),
+        color: "",
+        vehicleType: "Sedan",
+      });
+      toast({ title: "Vehicle added", description: "Your vehicle was created successfully." });
+    },
+    onError: (err) => {
+      toast({
+        title: "Add vehicle failed",
+        description: getApiErrorMessage(err, "Please check form data and try again."),
+        variant: "destructive",
+      });
+    },
+  });
+
+  const linkPolicyMutation = useMutation({
+    mutationFn: async () => {
+      if (!selected) throw new Error("No selected vehicle");
+      return api.vehicles.linkPolicy(selected, {
+        policy_id: policyForm.policyId,
+        insurer: policyForm.insurer,
+        effective_date: policyForm.effectiveDate || undefined,
+        expiry: policyForm.expiry || undefined,
+      });
+    },
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["vehicles"] });
+      await qc.invalidateQueries({ queryKey: ["vehicle", selected] });
+      setShowLinkPolicy(false);
+      setPolicyForm({ policyId: "", insurer: "", effectiveDate: "", expiry: "" });
+      toast({ title: "Policy linked", description: "Policy has been linked to this vehicle." });
+    },
+    onError: (err) => {
+      toast({ title: "Link policy failed", description: err instanceof Error ? err.message : "Please try again.", variant: "destructive" });
+    },
+  });
 
   const vehicleDetailQuery = useQuery<VehicleDetail, ApiError>({
     queryKey: ["vehicle", selected],
@@ -157,8 +277,64 @@ export default function Vehicles() {
             <h1 className="text-2xl font-display font-bold text-foreground">{t("vh.title")}</h1>
             <p className="text-muted-foreground mt-1">{t("vh.subtitle")}</p>
           </div>
-          <Button size="sm"><Plus className="w-4 h-4 mr-1" /> {t("vh.addVehicle")}</Button>
+          <Button size="sm" onClick={() => setShowAddVehicle((v) => !v)}><Plus className="w-4 h-4 mr-1" /> {t("vh.addVehicle")}</Button>
         </div>
+
+        {showAddVehicle && (
+          <Card className="border-primary/30 bg-primary/5">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">{t("vh.addVehicle")}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label>{t("vd.noPlateYet")}</Label>
+                  <Switch
+                    checked={newVehicle.noPlateYet}
+                    onCheckedChange={(v) => setNewVehicle((prev) => ({ ...prev, noPlateYet: Boolean(v), plate: Boolean(v) ? "" : prev.plate }))}
+                  />
+                </div>
+                {!newVehicle.noPlateYet && (
+                  <div className="space-y-2">
+                    <Label>{t("vd.plateNumber")}</Label>
+                    <Input value={newVehicle.plate} onChange={(e) => setNewVehicle((prev) => ({ ...prev, plate: e.target.value }))} placeholder="51A-123.45" />
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label>{t("vh.model")}</Label>
+                  <Input value={newVehicle.model} onChange={(e) => setNewVehicle((prev) => ({ ...prev, model: e.target.value }))} placeholder="Toyota Camry" />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t("vh.year")}</Label>
+                  <Input type="number" min={1900} max={2100} value={newVehicle.year} onChange={(e) => setNewVehicle((prev) => ({ ...prev, year: e.target.value }))} />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t("vh.color")}</Label>
+                  <Input value={newVehicle.color} onChange={(e) => setNewVehicle((prev) => ({ ...prev, color: e.target.value }))} placeholder="Black" />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t("vd.vehicleType")}</Label>
+                  <Input value={newVehicle.vehicleType} onChange={(e) => setNewVehicle((prev) => ({ ...prev, vehicleType: e.target.value }))} placeholder="Sedan" />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setShowAddVehicle(false)}>Cancel</Button>
+                <Button
+                  onClick={() => addVehicleMutation.mutate()}
+                  disabled={
+                    addVehicleMutation.isPending ||
+                    (!newVehicle.noPlateYet && !newVehicle.plate.trim()) ||
+                    !newVehicle.model.trim() ||
+                    !newVehicle.color.trim() ||
+                    !newVehicle.vehicleType.trim()
+                  }
+                >
+                  Add Vehicle
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Vehicle List - Left */}
@@ -315,7 +491,34 @@ export default function Vehicles() {
                         <div className="text-center py-8">
                           <ShieldCheck className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
                           <p className="text-sm text-muted-foreground mb-3">{t("vh.noPolicyLinked")}</p>
-                          <Button size="sm"><Plus className="w-3 h-3 mr-1" /> {t("vh.linkPolicy")}</Button>
+                          {!showLinkPolicy ? (
+                            <Button size="sm" onClick={() => setShowLinkPolicy(true)}><Plus className="w-3 h-3 mr-1" /> {t("vh.linkPolicy")}</Button>
+                          ) : (
+                            <div className="space-y-2 max-w-md mx-auto text-left">
+                              <div className="space-y-1">
+                                <Label>{t("vh.policyId")}</Label>
+                                <Input value={policyForm.policyId} onChange={(e) => setPolicyForm((p) => ({ ...p, policyId: e.target.value }))} placeholder="POL-2026-0001" />
+                              </div>
+                              <div className="space-y-1">
+                                <Label>{t("vh.insurer")}</Label>
+                                <Input value={policyForm.insurer} onChange={(e) => setPolicyForm((p) => ({ ...p, insurer: e.target.value }))} placeholder="Bao Viet" />
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div className="space-y-1">
+                                  <Label>{t("vd.effectiveDate")}</Label>
+                                  <Input type="date" value={policyForm.effectiveDate} onChange={(e) => setPolicyForm((p) => ({ ...p, effectiveDate: e.target.value }))} />
+                                </div>
+                                <div className="space-y-1">
+                                  <Label>{t("vh.expiry")}</Label>
+                                  <Input type="date" value={policyForm.expiry} onChange={(e) => setPolicyForm((p) => ({ ...p, expiry: e.target.value }))} />
+                                </div>
+                              </div>
+                              <div className="flex justify-end gap-2 pt-1">
+                                <Button variant="outline" size="sm" onClick={() => setShowLinkPolicy(false)}>Cancel</Button>
+                                <Button size="sm" onClick={() => linkPolicyMutation.mutate()} disabled={linkPolicyMutation.isPending || !policyForm.policyId.trim() || !policyForm.insurer.trim()}>Save</Button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
                     </CardContent>

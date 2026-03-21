@@ -2,6 +2,7 @@ import { useScrollReveal } from "@/hooks/useScrollReveal";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Shield, Zap, Globe } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 export default function HeroSection() {
   const titleRef = useScrollReveal<HTMLHeadingElement>(0.1);
@@ -9,6 +10,14 @@ export default function HeroSection() {
   const ctaRef = useScrollReveal<HTMLDivElement>(0.1);
   const statsRef = useScrollReveal<HTMLDivElement>(0.1);
   const { t } = useLanguage();
+  const navigate = useNavigate();
+
+  const scrollToSection = (selector: string) => {
+    const el = document.querySelector(selector);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth" });
+    }
+  };
 
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden pt-20">
@@ -56,11 +65,20 @@ export default function HeroSection() {
           className="reveal-up flex flex-col sm:flex-row items-center justify-center gap-4"
           style={{ transitionDelay: "200ms" }}
         >
-          <Button size="lg" className="group active:scale-95 transition-transform text-sm px-8">
+          <Button
+            size="lg"
+            className="group active:scale-95 transition-transform text-sm px-8"
+            onClick={() => navigate("/start-claim")}
+          >
             {t("hero.cta1")}
             <ArrowRight className="ml-1 w-4 h-4 transition-transform duration-200 group-hover:translate-x-1" />
           </Button>
-          <Button variant="outline" size="lg" className="active:scale-95 transition-transform text-sm px-8 border-border/50 hover:border-primary/30 hover:bg-primary/5">
+          <Button
+            variant="outline"
+            size="lg"
+            className="active:scale-95 transition-transform text-sm px-8 border-border/50 hover:border-primary/30 hover:bg-primary/5"
+            onClick={() => scrollToSection("#about")}
+          >
             {t("hero.cta2")}
           </Button>
         </div>

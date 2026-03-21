@@ -138,6 +138,15 @@
 }
 
 @layer utilities {
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
   .reveal-up {
     opacity: 0;
     transform: translateY(20px) scale(0.98);

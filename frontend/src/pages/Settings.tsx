@@ -16,9 +16,11 @@ import { ApiError } from "@/lib/apiClient";
 
 export default function Settings() {
   const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const { t, lang } = useLanguage();
   const [saved, setSaved] = useState(false);
   const [profile, setProfile] = useState({ fullName: "", email: "", phone: "" });
+  const [userPasswordForm, setUserPasswordForm] = useState({ email: "", newPassword: "" });
   const [prefs, setPrefs] = useState({
     pushNotif: true, emailNotif: true, inAppNotif: true,
     claimUpdates: true, docReminders: true, marketingEmails: false,
@@ -74,9 +76,18 @@ export default function Settings() {
       }),
   });
 
+  const adminChangeUserPassword = useMutation({
+    mutationFn: () =>
+      api.admin.changeUserPassword({ email: userPasswordForm.email.trim(), new_password: userPasswordForm.newPassword }),
+  });
+
   const handleSave = async () => {
     try {
-      await Promise.all([saveProfile.mutateAsync(), saveSettings.mutateAsync()]);
+      if (isAdmin) {
+        await saveSettings.mutateAsync();
+      } else {
+        await Promise.all([saveProfile.mutateAsync(), saveSettings.mutateAsync()]);
+      }
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch {
@@ -95,6 +106,7 @@ export default function Settings() {
           <p className="text-muted-foreground mt-1">{t("set.subtitle")}</p>
         </div>
 
+        {!isAdmin && (
         <Card className="border-border bg-card">
           <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><User className="w-4 h-4 text-primary" /> {t("set.profile")}</CardTitle></CardHeader>
           <CardContent className="space-y-4">
@@ -125,6 +137,7 @@ export default function Settings() {
             </div>
           </CardContent>
         </Card>
+        )}
 
         <Card className="border-border bg-card">
           <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Bell className="w-4 h-4 text-primary" /> {t("set.notifChannels")}</CardTitle></CardHeader>
@@ -176,6 +189,39 @@ export default function Settings() {
             <p className="text-xs text-muted-foreground">{t("set.lastPasswordChange")}</p>
           </CardContent>
         </Card>
+
+        {isAdmin && (
+          <Card className="border-border bg-card">
+            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Shield className="w-4 h-4 text-primary" /> Admin: Change User Password</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              <div className="space-y-2">
+                <Label>User Email</Label>
+                <Input value={userPasswordForm.email} onChange={(e) => setUserPasswordForm((p) => ({ ...p, email: e.target.value }))} type="email" placeholder="user@example.com" />
+              </div>
+              <div className="space-y-2">
+                <Label>New Password</Label>
+                <Input value={userPasswordForm.newPassword} onChange={(e) => setUserPasswordForm((p) => ({ ...p, newPassword: e.target.value }))} type="password" minLength={8} placeholder="At least 8 characters" />
+              </div>
+              <div className="flex justify-end">
+                <Button
+                  onClick={async () => {
+                    try {
+                      await adminChangeUserPassword.mutateAsync();
+                      setUserPasswordForm({ email: "", newPassword: "" });
+                      setSaved(true);
+                      setTimeout(() => setSaved(false), 2000);
+                    } catch {
+                      void 0;
+                    }
+                  }}
+                  disabled={adminChangeUserPassword.isPending || !userPasswordForm.email.trim() || userPasswordForm.newPassword.length < 8}
+                >
+                  Change User Password
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="flex justify-end pt-2">
           <Button onClick={handleSave} size="lg" disabled={saveProfile.isPending || saveSettings.isPending}>

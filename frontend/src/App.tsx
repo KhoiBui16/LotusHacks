@@ -23,6 +23,14 @@ import Claims from "./pages/Claims.tsx";
 import Notifications from "./pages/Notifications.tsx";
 import Settings from "./pages/Settings.tsx";
 import ChangePassword from "./pages/ChangePassword.tsx";
+import PolicyImport from "./pages/PolicyImport.tsx";
+import EligibilityDecision from "./pages/EligibilityDecision.tsx";
+import AssistedMode from "./pages/AssistedMode.tsx";
+import DocsCenter from "./pages/DocsCenter.tsx";
+import LegalTerms from "./pages/LegalTerms.tsx";
+import ForgotPassword from "./pages/ForgotPassword.tsx";
+import ClaimAppeal from "./pages/ClaimAppeal.tsx";
+import Chat from "./pages/Chat.tsx";
 
 const queryClient = new QueryClient();
 
@@ -47,19 +55,27 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/core-services" element={<CoreServices />} />
             <Route path="/sign-in" element={<SignIn />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/docs" element={<DocsCenter />} />
+            <Route path="/terms" element={<LegalTerms />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/start-claim" element={<StartClaim />} />
+            <Route path="/policy-import" element={<PolicyImport />} />
             <Route path="/incident-intake" element={<IncidentIntake />} />
+            <Route path="/eligibility" element={<EligibilityDecision />} />
+            <Route path="/assisted-mode" element={<AssistedMode />} />
             <Route path="/emergency" element={<Emergency />} />
             <Route path="/checklist-upload" element={<ChecklistUpload />} />
             <Route path="/validation" element={<Validation />} />
             <Route path="/review-submit" element={<ReviewSubmit />} />
             <Route path="/claim-tracking/:id" element={<ClaimTracking />} />
+            <Route path="/claim-appeal/:id" element={<ClaimAppeal />} />
             <Route path="/vehicles" element={<Vehicles />} />
             <Route path="/claims" element={<Claims />} />
             <Route path="/notifications" element={<Notifications />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/change-password" element={<ChangePassword />} />
+            <Route path="/chat" element={<Chat />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

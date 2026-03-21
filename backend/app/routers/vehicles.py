@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from typing import Annotated
 
 from bson import ObjectId
+from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
@@ -15,11 +16,24 @@ from app.security.deps import get_current_user
 router = APIRouter(prefix="/vehicles", tags=["vehicles"])
 
 
+def _to_object_id(raw_id: str, label: str) -> ObjectId:
+    try:
+        return ObjectId(raw_id)
+    except InvalidId:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid {label} id")
+
+
+def _assert_vehicle_access_allowed(user: UserInDB) -> None:
+    if user.role == "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Vehicle management is disabled for admin accounts")
+
+
 @router.get("", response_model=list[VehicleSummary])
 async def list_vehicles(
     user: Annotated[UserInDB, Depends(get_current_user)],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ) -> list[VehicleSummary]:
+    _assert_vehicle_access_allowed(user)
     vehicles = db["vehicles"]
     claims = db["claims"]
 
@@ -53,6 +67,7 @@ async def create_vehicle(
     user: Annotated[UserInDB, Depends(get_current_user)],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ) -> VehicleInDB:
+    _assert_vehicle_access_allowed(user)
     if not payload.no_plate_yet and not payload.plate:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="plate is required")
     if payload.no_plate_yet:
@@ -113,7 +128,9 @@ async def get_vehicle(
     user: Annotated[UserInDB, Depends(get_current_user)],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ) -> VehicleInDB:
-    doc = await db["vehicles"].find_one({"_id": ObjectId(vehicle_id), "user_id": ObjectId(user.id)})
+    _assert_vehicle_access_allowed(user)
+    vehicle_oid = _to_object_id(vehicle_id, "vehicle")
+    doc = await db["vehicles"].find_one({"_id": vehicle_oid, "user_id": ObjectId(user.id)})
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
     return VehicleInDB.from_mongo(doc)
@@ -126,19 +143,37 @@ async def update_vehicle(
     user: Annotated[UserInDB, Depends(get_current_user)],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ) -> VehicleInDB:
+    _assert_vehicle_access_allowed(user)
+    vehicle_oid = _to_object_id(vehicle_id, "vehicle")
+    current = await db["vehicles"].find_one({"_id": vehicle_oid, "user_id": ObjectId(user.id)})
+    if not current:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+
     updates = {k: v for k, v in payload.model_dump(exclude_unset=True).items()}
     if "no_plate_yet" in updates and updates["no_plate_yet"] is True:
         updates["plate"] = None
+    if "plate" in updates and updates["plate"] is not None:
+        updates["plate"] = updates["plate"].strip()
+
+    if updates.get("no_plate_yet") is False:
+        candidate_plate = updates.get("plate", current.get("plate"))
+        if not candidate_plate:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="plate is required when no_plate_yet is false")
+    elif updates.get("no_plate_yet") is not True and "plate" in updates:
+        existing_no_plate = bool(current.get("no_plate_yet", False))
+        if not existing_no_plate and not updates["plate"]:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="plate is required")
+
     if updates:
         updates["updated_at"] = datetime.now(timezone.utc)
         res = await db["vehicles"].update_one(
-            {"_id": ObjectId(vehicle_id), "user_id": ObjectId(user.id)},
+            {"_id": vehicle_oid, "user_id": ObjectId(user.id)},
             {"$set": updates},
         )
         if res.matched_count == 0:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
 
-    doc = await db["vehicles"].find_one({"_id": ObjectId(vehicle_id), "user_id": ObjectId(user.id)})
+    doc = await db["vehicles"].find_one({"_id": vehicle_oid, "user_id": ObjectId(user.id)})
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
     return VehicleInDB.from_mongo(doc)
@@ -150,7 +185,9 @@ async def delete_vehicle(
     user: Annotated[UserInDB, Depends(get_current_user)],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ) -> OkResponse:
-    res = await db["vehicles"].delete_one({"_id": ObjectId(vehicle_id), "user_id": ObjectId(user.id)})
+    _assert_vehicle_access_allowed(user)
+    vehicle_oid = _to_object_id(vehicle_id, "vehicle")
+    res = await db["vehicles"].delete_one({"_id": vehicle_oid, "user_id": ObjectId(user.id)})
     if res.deleted_count == 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
     return OkResponse()
@@ -163,6 +200,8 @@ async def link_policy(
     user: Annotated[UserInDB, Depends(get_current_user)],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ) -> VehicleInDB:
+    _assert_vehicle_access_allowed(user)
+    vehicle_oid = _to_object_id(vehicle_id, "vehicle")
     updates = {
         "policy_linked": True,
         "policy_id": payload.policy_id,
@@ -172,12 +211,12 @@ async def link_policy(
         "updated_at": datetime.now(timezone.utc),
     }
     res = await db["vehicles"].update_one(
-        {"_id": ObjectId(vehicle_id), "user_id": ObjectId(user.id)},
+        {"_id": vehicle_oid, "user_id": ObjectId(user.id)},
         {"$set": updates},
     )
     if res.matched_count == 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
-    doc = await db["vehicles"].find_one({"_id": ObjectId(vehicle_id), "user_id": ObjectId(user.id)})
+    doc = await db["vehicles"].find_one({"_id": vehicle_oid, "user_id": ObjectId(user.id)})
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
     return VehicleInDB.from_mongo(doc)
@@ -189,6 +228,8 @@ async def unlink_policy(
     user: Annotated[UserInDB, Depends(get_current_user)],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ) -> VehicleInDB:
+    _assert_vehicle_access_allowed(user)
+    vehicle_oid = _to_object_id(vehicle_id, "vehicle")
     updates = {
         "policy_linked": False,
         "policy_id": None,
@@ -198,12 +239,12 @@ async def unlink_policy(
         "updated_at": datetime.now(timezone.utc),
     }
     res = await db["vehicles"].update_one(
-        {"_id": ObjectId(vehicle_id), "user_id": ObjectId(user.id)},
+        {"_id": vehicle_oid, "user_id": ObjectId(user.id)},
         {"$set": updates},
     )
     if res.matched_count == 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
-    doc = await db["vehicles"].find_one({"_id": ObjectId(vehicle_id), "user_id": ObjectId(user.id)})
+    doc = await db["vehicles"].find_one({"_id": vehicle_oid, "user_id": ObjectId(user.id)})
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
     return VehicleInDB.from_mongo(doc)

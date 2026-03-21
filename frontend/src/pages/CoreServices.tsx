@@ -5,6 +5,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { ArrowRight, Radio, Shield, Cpu, BarChart3, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TranslationKey } from "@/i18n/translations";
+import { Link } from "react-router-dom";
 
 const pillars: { id: string; icon: typeof Radio; num: string; titleKey: TranslationKey; subtitleKey: TranslationKey; statValueKey: string; statLabelKey: TranslationKey; description: string; features: string[] }[] = [
   { id: "rfid", icon: Radio, num: "01", titleKey: "cs.p1.title", subtitleKey: "cs.p1.subtitle", statValueKey: "4.2M+", statLabelKey: "cs.p1.stat", description: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Suspendisse varius enim in eros elementum tristique.", features: ["Ultra-high frequency passive RFID tags with 10+ year lifespan", "Tamper-proof mounting with vehicle identification binding", "Multi-lane detection at speeds exceeding 120 km/h", "Batch provisioning and remote firmware updates"] },
@@ -70,8 +71,10 @@ function PillarSection({ pillar, index }: { pillar: typeof pillars[0]; index: nu
                 <li key={fi} className="flex items-start gap-3 text-sm text-muted-foreground"><span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-primary shrink-0" />{f}</li>
               ))}
             </ul>
-            <Button variant="outline" size="sm" className="group active:scale-95 transition-transform border-border/50 hover:border-primary/30 hover:bg-primary/5">
-              {t("cs.learnMore")}<ArrowRight className="ml-1 w-3.5 h-3.5 transition-transform duration-200 group-hover:translate-x-1" />
+            <Button variant="outline" size="sm" className="group active:scale-95 transition-transform border-border/50 hover:border-primary/30 hover:bg-primary/5" asChild>
+              <Link to={`/docs?topic=${pillar.id}`}>
+                {t("cs.learnMore")}<ArrowRight className="ml-1 w-3.5 h-3.5 transition-transform duration-200 group-hover:translate-x-1" />
+              </Link>
             </Button>
           </div>
           <div ref={cardRef} className="reveal-3d flex-1 max-w-md w-full" style={{ transitionDelay: "150ms" }}>
@@ -101,8 +104,12 @@ function BottomCTA() {
       </h2>
       <p className="text-muted-foreground text-sm md:text-base max-w-lg mx-auto mb-8 leading-relaxed" style={{ textWrap: "pretty" }}>{t("cs.bottomSubtitle")}</p>
       <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-        <Button size="lg" className="group active:scale-95 transition-transform text-sm px-8">{t("cta.sales")}<ArrowRight className="ml-1 w-4 h-4 transition-transform duration-200 group-hover:translate-x-1" /></Button>
-        <Button variant="outline" size="lg" className="active:scale-95 transition-transform text-sm px-8 border-border/50 hover:border-primary/30 hover:bg-primary/5">{t("cta.docs")}</Button>
+        <Button size="lg" className="group active:scale-95 transition-transform text-sm px-8" asChild>
+          <a href="mailto:sales@vetc.vn">{t("cta.sales")}<ArrowRight className="ml-1 w-4 h-4 transition-transform duration-200 group-hover:translate-x-1" /></a>
+        </Button>
+        <Button variant="outline" size="lg" className="active:scale-95 transition-transform text-sm px-8 border-border/50 hover:border-primary/30 hover:bg-primary/5" asChild>
+          <Link to="/docs">{t("cta.docs")}</Link>
+        </Button>
       </div>
     </div>
   );

@@ -22,6 +22,7 @@ async def get_me(user: Annotated[UserInDB, Depends(get_current_user)]) -> UserPu
         full_name=user.full_name,
         phone=user.phone,
         avatar_url=user.avatar_url,
+        role=user.role,
         created_at=user.created_at,
     )
 
@@ -32,6 +33,9 @@ async def update_me(
     user: Annotated[UserInDB, Depends(get_current_user)],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ) -> UserPublic:
+    if user.role == "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin profile editing is disabled")
+
     updates: dict = {}
     if payload.full_name is not None:
         updates["full_name"] = payload.full_name
@@ -54,6 +58,7 @@ async def update_me(
         full_name=user.full_name,
         phone=user.phone,
         avatar_url=user.avatar_url,
+        role=user.role,
         created_at=user.created_at,
     )
 
@@ -82,4 +87,6 @@ async def change_password(
         },
     )
     return OkResponse()
+
+
 

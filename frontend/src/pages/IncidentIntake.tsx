@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useToast } from "@/hooks/use-toast";
 import Navbar from "@/components/landing/Navbar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,9 +16,22 @@ import {
 import { TranslationKey } from "@/i18n/translations";
 import { api } from "@/lib/api";
 
+function normalizeId(raw: string | null): string {
+  const v = (raw ?? "").trim();
+  if (!v || v === "undefined" || v === "null") return "";
+  return /^[a-f\d]{24}$/i.test(v) ? v : "";
+}
+
+function claimIdOf(claim: unknown): string {
+  const anyClaim = claim as { id?: string; _id?: string };
+  const raw = anyClaim?.id || anyClaim?._id || "";
+  return normalizeId(raw);
+}
+
 export default function IncidentIntake() {
   const navigate = useNavigate();
   const { t } = useLanguage();
+  const { toast } = useToast();
 
   const STEPS = [
     { id: "type", label: t("ii.stepType"), icon: ShieldAlert },
@@ -39,6 +53,16 @@ export default function IncidentIntake() {
   ];
 
   const [step, setStep] = useState(0);
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<any>(null);
+  const markerRef = useRef<any>(null);
+  const mapsListenersRef = useRef<any[]>([]);
+  const [mapReady, setMapReady] = useState(false);
+  const [mapError, setMapError] = useState<string>("");
+  const googleMapsApiKey = useMemo(() => {
+    const v = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+    return v && v.trim() ? v.trim() : "";
+  }, []);
   const [data, setData] = useState({
     type: "", date: "", time: "", location: "", description: "",
     hasThirdParty: null as boolean | null, thirdPartyInfo: "",
@@ -46,7 +70,111 @@ export default function IncidentIntake() {
     hasInjury: null as boolean | null,
   });
 
+  const useCurrentLocation = () => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition((pos) => {
+      const { latitude, longitude } = pos.coords;
+      setData((prev) => ({ ...prev, location: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}` }));
+      if (mapRef.current && markerRef.current) {
+        const next = { lat: latitude, lng: longitude };
+        markerRef.current.setPosition(next);
+        mapRef.current.panTo(next);
+        mapRef.current.setZoom(16);
+      }
+    });
+  };
+
+  useEffect(() => {
+    if (step !== 2) return;
+    if (!googleMapsApiKey) {
+      setMapError("Google Maps key is missing");
+      return;
+    }
+    if (!mapContainerRef.current) return;
+
+    const initMap = () => {
+      if (!window.google?.maps || !mapContainerRef.current) {
+        setMapError("Google Maps failed to initialize");
+        return;
+      }
+
+      const initialCenter = { lat: 10.7769, lng: 106.7009 };
+      mapRef.current = new window.google.maps.Map(mapContainerRef.current, {
+        center: initialCenter,
+        zoom: 13,
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: false,
+      });
+      markerRef.current = new window.google.maps.Marker({
+        position: initialCenter,
+        map: mapRef.current,
+        draggable: true,
+        title: "Selected location",
+      });
+
+      mapsListenersRef.current.push(
+        mapRef.current.addListener("click", (ev: any) => {
+          const lat = ev.latLng.lat();
+          const lng = ev.latLng.lng();
+          markerRef.current.setPosition({ lat, lng });
+          setData((prev) => ({ ...prev, location: `${lat.toFixed(6)}, ${lng.toFixed(6)}` }));
+        })
+      );
+
+      mapsListenersRef.current.push(
+        markerRef.current.addListener("dragend", (ev: any) => {
+          const lat = ev.latLng.lat();
+          const lng = ev.latLng.lng();
+          setData((prev) => ({ ...prev, location: `${lat.toFixed(6)}, ${lng.toFixed(6)}` }));
+        })
+      );
+
+      setMapReady(true);
+      setMapError("");
+    };
+
+    if (window.google?.maps) {
+      initMap();
+      return;
+    }
+
+    const src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(googleMapsApiKey)}`;
+    const existing = document.querySelector<HTMLScriptElement>(`script[src="${src}"]`);
+    if (existing) {
+      existing.addEventListener("load", initMap, { once: true });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    script.defer = true;
+    script.onload = initMap;
+    script.onerror = () => setMapError("Failed to load Google Maps script");
+    document.head.appendChild(script);
+
+    return () => {
+      mapsListenersRef.current.forEach((l) => {
+        if (l && typeof l.remove === "function") l.remove();
+      });
+      mapsListenersRef.current = [];
+    };
+  }, [step, googleMapsApiKey]);
+
+  useEffect(() => {
+    if (!mapReady || !mapRef.current || !markerRef.current) return;
+    const m = data.location.match(/(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/);
+    if (!m) return;
+    const lat = Number(m[1]);
+    const lng = Number(m[2]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    markerRef.current.setPosition({ lat, lng });
+    mapRef.current.panTo({ lat, lng });
+  }, [data.location, mapReady]);
+
   const currentStep = STEPS[step];
+  const progressPercent = ((step + 1) / STEPS.length) * 100;
   const canNext = () => {
     switch (step) {
       case 0: return !!data.type;
@@ -67,8 +195,18 @@ export default function IncidentIntake() {
 
   const finish = useMutation({
     mutationFn: async () => {
-      const claimId = sessionStorage.getItem("activeClaimId");
-      if (!claimId) return;
+      let claimId = normalizeId(sessionStorage.getItem("activeClaimId"));
+      if (!claimId) {
+        const activeVehicleId = normalizeId(sessionStorage.getItem("activeVehicleId"));
+        if (!activeVehicleId) {
+          throw new Error("No active claim/vehicle. Please start claim flow again.");
+        }
+        const created = await api.claims.create({ vehicle_id: activeVehicleId });
+        claimId = claimIdOf(created);
+        if (!claimId) throw new Error("Could not initialize claim");
+        sessionStorage.setItem("activeClaimId", claimId);
+      }
+
       await api.claims.patch(claimId, {
         incident: {
           type: data.type,
@@ -83,10 +221,21 @@ export default function IncidentIntake() {
           has_injury: Boolean(data.hasInjury),
         },
       });
+      await api.claims.triage(claimId);
     },
     onSuccess: () => {
-      if (data.hasInjury || data.hasThirdParty) navigate("/emergency");
-      else navigate("/checklist-upload");
+      if (data.hasInjury || data.hasThirdParty) {
+        navigate("/assisted-mode");
+        return;
+      }
+      navigate("/eligibility");
+    },
+    onError: (err) => {
+      toast({
+        title: "Cannot continue",
+        description: err instanceof Error ? err.message : "Please try again.",
+        variant: "destructive",
+      });
     },
   });
 
@@ -104,22 +253,31 @@ export default function IncidentIntake() {
     <div className="min-h-screen bg-background">
       <Navbar />
       <main className="container pt-24 pb-16 px-4 max-w-3xl mx-auto">
-        <div className="mb-8 overflow-x-auto">
-          <div className="flex items-center gap-1 min-w-max">
-            {STEPS.map((s, i) => {
-              const Icon = s.icon;
-              const done = i < step;
-              const active = i === step;
-              return (
-                <div key={s.id} className="flex items-center">
-                  <button onClick={() => i < step && setStep(i)} className={`flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-medium transition-all ${active ? "bg-primary text-primary-foreground" : done ? "bg-primary/20 text-primary cursor-pointer" : "bg-secondary text-muted-foreground"}`}>
-                    {done ? <Check className="w-3 h-3" /> : <Icon className="w-3 h-3" />}
-                    <span className="hidden sm:inline">{s.label}</span>
-                  </button>
-                  {i < STEPS.length - 1 && <div className={`w-4 h-0.5 mx-1 ${i < step ? "bg-primary/40" : "bg-border"}`} />}
-                </div>
-              );
-            })}
+        <div className="mb-8">
+          <div className="overflow-x-auto no-scrollbar rounded-xl border border-border/60 bg-secondary/20 px-2 py-2">
+            <div className="flex items-center gap-1 min-w-max">
+              {STEPS.map((s, i) => {
+                const Icon = s.icon;
+                const done = i < step;
+                const active = i === step;
+                return (
+                  <div key={s.id} className="flex items-center">
+                    <button onClick={() => i < step && setStep(i)} className={`flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-medium transition-all ${active ? "bg-primary text-primary-foreground" : done ? "bg-primary/20 text-primary cursor-pointer" : "bg-secondary text-muted-foreground"}`}>
+                      {done ? <Check className="w-3 h-3" /> : <Icon className="w-3 h-3" />}
+                      <span className="hidden sm:inline">{s.label}</span>
+                    </button>
+                    {i < STEPS.length - 1 && <div className={`w-4 h-0.5 mx-1 ${i < step ? "bg-primary/40" : "bg-border"}`} />}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="mt-2 h-1.5 rounded-full bg-secondary/70 border border-border/40 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-primary/70 via-primary to-primary/70 transition-all duration-300"
+              style={{ width: `${progressPercent}%` }}
+            />
           </div>
         </div>
 
@@ -154,8 +312,19 @@ export default function IncidentIntake() {
             {step === 2 && (
               <div className="space-y-4">
                 <div className="space-y-2"><Label>{t("ii.locationLabel")}</Label><Input placeholder={t("ii.locationPlaceholder")} value={data.location} onChange={(e) => setData({ ...data, location: e.target.value })} /></div>
-                <Button variant="outline" size="sm"><MapPin className="w-4 h-4 mr-1" /> {t("ii.useCurrentLocation")}</Button>
-                <div className="w-full h-48 rounded-lg bg-secondary/60 border border-border flex items-center justify-center text-muted-foreground text-sm">{t("ii.mapPlaceholder")}</div>
+                <Button variant="outline" size="sm" onClick={useCurrentLocation}><MapPin className="w-4 h-4 mr-1" /> {t("ii.useCurrentLocation")}</Button>
+                {!googleMapsApiKey && (
+                  <div className="w-full rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                    Set `VITE_GOOGLE_MAPS_API_KEY` in frontend env to enable Google Maps.
+                  </div>
+                )}
+                {mapError && googleMapsApiKey && (
+                  <div className="w-full rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                    {mapError}
+                  </div>
+                )}
+                <div ref={mapContainerRef} className="w-full h-56 rounded-lg border border-border overflow-hidden" />
+                <p className="text-xs text-muted-foreground">Click on map or drag marker to choose location.</p>
               </div>
             )}
 

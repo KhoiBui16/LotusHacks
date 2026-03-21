@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useLanguage } from "@/contexts/LanguageContext";
 import Navbar from "@/components/landing/Navbar";
@@ -13,8 +13,11 @@ import { Search } from "lucide-react";
 import { api } from "@/lib/api";
 import { ApiError } from "@/lib/apiClient";
 import type { ClaimListItem } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function Claims() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const { t } = useLanguage();
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
@@ -62,6 +65,12 @@ export default function Claims() {
 
   const filtered = claimsQuery.data ?? [];
   const totalClaims = (countsQuery.data ?? []).length;
+
+  useEffect(() => {
+    if (user?.role === "admin") {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [navigate, user?.role]);
 
   return (
     <div className="min-h-screen bg-background">

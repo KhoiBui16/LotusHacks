@@ -26,8 +26,11 @@ async def signup(payload: SignUpRequest) -> AuthResponse:
     doc = {
         "email": payload.email.lower(),
         "full_name": payload.full_name,
+        "phone": None,
+        "avatar_url": None,
         "password_hash": hash_password(payload.password),
         "google_sub": None,
+        "role": "user",
         "created_at": now,
         "updated_at": now,
     }
@@ -40,6 +43,9 @@ async def signup(payload: SignUpRequest) -> AuthResponse:
             id=user_db.id,
             email=user_db.email,
             full_name=user_db.full_name,
+            phone=user_db.phone,
+            avatar_url=user_db.avatar_url,
+            role=user_db.role,
             created_at=user_db.created_at,
         ),
     )
@@ -65,6 +71,9 @@ async def signin(payload: SignInRequest) -> AuthResponse:
             id=user_db.id,
             email=user_db.email,
             full_name=user_db.full_name,
+            phone=user_db.phone,
+            avatar_url=user_db.avatar_url,
+            role=user_db.role,
             created_at=user_db.created_at,
         ),
     )
@@ -74,6 +83,13 @@ async def signin(payload: SignInRequest) -> AuthResponse:
 async def google_auth(payload: GoogleAuthRequest) -> AuthResponse:
     try:
         claims = verify_google_id_token(payload.id_token)
+    except ValueError as exc:
+        if "GOOGLE_CLIENT_ID" in str(exc):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Google auth is not configured on server",
+            )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google token")
     except Exception:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google token")
 
@@ -103,8 +119,11 @@ async def google_auth(payload: GoogleAuthRequest) -> AuthResponse:
         insert_doc = {
             "email": email,
             "full_name": name or email.split("@")[0],
+            "phone": None,
+            "avatar_url": None,
             "password_hash": None,
             "google_sub": sub,
+            "role": "user",
             "created_at": now,
             "updated_at": now,
         }
@@ -118,7 +137,9 @@ async def google_auth(payload: GoogleAuthRequest) -> AuthResponse:
             id=user_db.id,
             email=user_db.email,
             full_name=user_db.full_name,
+            phone=user_db.phone,
+            avatar_url=user_db.avatar_url,
+            role=user_db.role,
             created_at=user_db.created_at,
         ),
     )
-

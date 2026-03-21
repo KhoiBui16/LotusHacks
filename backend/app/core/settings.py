@@ -1,4 +1,20 @@
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+def _load_env_files() -> None:
+    # backend/app/core/settings.py -> backend/
+    backend_dir = Path(__file__).resolve().parents[2]
+    backend_env = backend_dir / ".env"
+
+    # Keep existing process env as highest priority.
+    if backend_env.exists():
+        load_dotenv(backend_env, override=False)
+
+
+_load_env_files()
 
 
 class Settings:
@@ -8,8 +24,8 @@ class Settings:
         self.jwt_secret = os.getenv("JWT_SECRET", "dev-secret-change-me")
         self.jwt_algorithm = os.getenv("JWT_ALGORITHM", "HS256")
         self.jwt_expires_minutes = int(os.getenv("JWT_EXPIRES_MINUTES", "10080"))
-        self.google_client_id = os.getenv("GOOGLE_CLIENT_ID", "")
+        raw_google_client_ids = os.getenv("GOOGLE_CLIENT_ID", "")
+        self.google_client_ids = [v.strip() for v in raw_google_client_ids.split(",") if v.strip()]
 
 
 settings = Settings()
-

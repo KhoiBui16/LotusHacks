@@ -36,6 +36,12 @@ export default function ChecklistUpload() {
     { id: "police-report", labelKey: "cl.policeReport", required: false, icon: FileWarning, status: "pending" },
   ]);
 
+  const requiredDocsQuery = useQuery({
+    queryKey: ["claim-required-docs", claimId],
+    queryFn: () => api.claims.requiredDocs(claimId),
+    enabled: Boolean(claimId),
+  });
+
   const uploaded = docs.filter((d) => d.status === "uploaded").length;
   const required = docs.filter((d) => d.required).length;
   const requiredDone = docs.filter((d) => d.required && d.status === "uploaded").length;
@@ -46,6 +52,18 @@ export default function ChecklistUpload() {
     queryFn: () => api.claims.documents(claimId),
     enabled: Boolean(claimId),
   });
+
+  useEffect(() => {
+    const remoteRequired = requiredDocsQuery.data ?? [];
+    if (remoteRequired.length === 0) return;
+    setDocs((prev) =>
+      prev.map((d) => {
+        const r = remoteRequired.find((x) => x.doc_type === d.id);
+        if (!r) return d;
+        return { ...d, required: r.required };
+      })
+    );
+  }, [requiredDocsQuery.data]);
 
   useEffect(() => {
     const remote = (documentsQuery.data ?? []) as ClaimDocument[];

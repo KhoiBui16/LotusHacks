@@ -4,6 +4,7 @@ export type AuthUser = {
   id: string;
   email: string;
   full_name: string;
+  role?: "admin" | "user";
   phone?: string | null;
   avatar_url?: string | null;
   created_at: string;
@@ -131,6 +132,63 @@ export type ValidationResponse = {
   results: ValidationResult[];
 };
 
+export type TriageResponse = {
+  claim_id: string;
+  risk_level: "low" | "medium" | "high";
+  assisted_mode: boolean;
+  reasons: string[];
+};
+
+export type CoverageCheck = {
+  policy_active: boolean;
+  has_policy: boolean;
+  likely_excluded: boolean;
+  deductible_notice?: string | null;
+};
+
+export type EligibilityResponse = {
+  claim_id: string;
+  outcome: "likely_covered" | "low_value_or_excluded";
+  coverage: CoverageCheck;
+  next_action: "assisted" | "chat" | "review" | "exit";
+  notes: string[];
+};
+
+export type PolicyImportResponse = {
+  claim_id: string;
+  policy_linked: boolean;
+  policy_id?: string | null;
+  insurer?: string | null;
+  source: string;
+};
+
+export type FirstNoticeResponse = {
+  claim_id: string;
+  captured: boolean;
+  message: string;
+};
+
+export type DossierResponse = {
+  claim_id: string;
+  summary: string;
+  timeline: Array<{ doc_type: string; status: "valid" | "invalid" | "missing"; note?: string | null }>;
+  attachments_count: number;
+  completeness: "complete" | "partial";
+};
+
+export type SubmitRouterResponse = {
+  claim_id: string;
+  channel: "api" | "email" | "portal";
+  external_ref: string;
+  status: "received" | "queued";
+};
+
+export type ClaimAppealResponse = {
+  claim_id: string;
+  appealed: boolean;
+  message: string;
+};
+
 export type UploadResponse = {
   upload_id: string;
   filename: string;
@@ -161,6 +219,33 @@ export type Settings = {
   language: string;
 };
 
+export type ChatMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+};
+
+export type ChatSession = {
+  id: string;
+  title: string;
+  messages: ChatMessage[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type ChatSessionListItem = {
+  id: string;
+  title: string;
+  updated_at: string;
+};
+
+export type AdminClaimListItem = ClaimListItem & {
+  user_id: string;
+  user_email: string;
+  user_name: string;
+};
+
 export const api = {
   auth: {
     signup: (payload: { email: string; full_name: string; password: string }) =>
@@ -181,6 +266,20 @@ export const api = {
     list: () =>
       apiRequest<VehicleSummary[]>("/vehicles", { auth: true }),
     get: (id: string) => apiRequest<VehicleDetail>(`/vehicles/${id}`, { auth: true }),
+    update: (id: string, payload: Partial<VehicleDetail>) =>
+      apiRequest<VehicleDetail>(`/vehicles/${id}`, { method: "PATCH", body: payload, auth: true }),
+    create: (payload: {
+      no_plate_yet: boolean;
+      plate?: string | null;
+      model: string;
+      year: number;
+      color: string;
+      vehicle_type: string;
+    }) => apiRequest<VehicleDetail>("/vehicles", { method: "POST", body: payload, auth: true }),
+    linkPolicy: (
+      id: string,
+      payload: { policy_id: string; insurer: string; effective_date?: string; expiry?: string }
+    ) => apiRequest<VehicleDetail>(`/vehicles/${id}/policy/link`, { method: "POST", body: payload, auth: true }),
   },
   claims: {
     list: (params: { status?: string; vehicle_id?: string; q?: string }) => {
@@ -193,6 +292,8 @@ export const api = {
     },
     get: (id: string) => apiRequest<Claim>(`/claims/${id}`, { auth: true }),
     timeline: (id: string) => apiRequest<ClaimTimelineItem[]>(`/claims/${id}/timeline`, { auth: true }),
+    requiredDocs: (id: string) => apiRequest<Array<{ doc_type: string; required: boolean; title: string; mime_allowed: string[]; max_size_mb: number }>>(`/claims/${id}/required-docs`, { auth: true }),
+    delete: (id: string) => apiRequest<{ ok: boolean }>(`/claims/${id}`, { method: "DELETE", auth: true }),
     documents: (id: string) => apiRequest<ClaimDocument[]>(`/claims/${id}/documents`, { auth: true }),
     submit: (id: string) => apiRequest<Claim>(`/claims/${id}/submit`, { method: "POST", body: { consent: true }, auth: true }),
     create: (payload: { vehicle_id: string; policy_id?: string; insurer?: string }) =>
@@ -202,6 +303,23 @@ export const api = {
       apiRequest<ClaimDocument>(`/claims/${claimId}/documents`, { method: "POST", body: payload, auth: true }),
     validate: (claimId: string) =>
       apiRequest<ValidationResponse>(`/claims/${claimId}/validate`, { method: "POST", auth: true }),
+    triage: (claimId: string) =>
+      apiRequest<TriageResponse>(`/claims/${claimId}/triage`, { method: "POST", auth: true }),
+    eligibility: (claimId: string) =>
+      apiRequest<EligibilityResponse>(`/claims/${claimId}/eligibility`, { auth: true }),
+    policyImport: (
+      claimId: string,
+      payload: { policy_id: string; insurer: string; effective_date?: string; expiry?: string; source?: "ocr" | "manual" | "upload" }
+    ) => apiRequest<PolicyImportResponse>(`/claims/${claimId}/policy-import`, { method: "POST", body: payload, auth: true }),
+    firstNotice: (
+      claimId: string,
+      payload: { emergency_contacted: boolean; kept_scene: boolean; initial_evidence_collected: boolean; notes?: string }
+    ) => apiRequest<FirstNoticeResponse>(`/claims/${claimId}/first-notice`, { method: "POST", body: payload, auth: true }),
+    dossier: (claimId: string) => apiRequest<DossierResponse>(`/claims/${claimId}/dossier`, { auth: true }),
+    submitRouter: (claimId: string, payload: { channel: "api" | "email" | "portal" }) =>
+      apiRequest<SubmitRouterResponse>(`/claims/${claimId}/submit-router`, { method: "POST", body: payload, auth: true }),
+    appeal: (claimId: string, payload: { reason: string }) =>
+      apiRequest<ClaimAppealResponse>(`/claims/${claimId}/appeal`, { method: "POST", body: payload, auth: true }),
   },
   uploads: {
     upload: (file: File, purpose: "claim_doc" | "policy_doc" | "avatar" | "other" = "other") => {
@@ -225,5 +343,29 @@ export const api = {
   settings: {
     get: () => apiRequest<Settings>(`/settings`, { auth: true }),
     patch: (payload: Partial<Settings>) => apiRequest<Settings>(`/settings`, { method: "PATCH", body: payload, auth: true }),
+  },
+  chat: {
+    createSession: () => apiRequest<ChatSession>(`/chat/sessions`, { method: "POST", body: {}, auth: true }),
+    listSessions: () => apiRequest<ChatSessionListItem[]>(`/chat/sessions`, { auth: true }),
+    getSession: (id: string) => apiRequest<ChatSession>(`/chat/sessions/${id}`, { auth: true }),
+    sendMessage: (sessionId: string, payload: { content: string }) =>
+      apiRequest<ChatSession>(`/chat/sessions/${sessionId}/messages`, { method: "POST", body: payload, auth: true }),
+    deleteSession: (id: string) => apiRequest<{ ok: boolean }>(`/chat/sessions/${id}`, { method: "DELETE", auth: true }),
+  },
+  admin: {
+    listClaims: (params: { status?: string; q?: string }) => {
+      const usp = new URLSearchParams();
+      if (params.status) usp.set("status", params.status);
+      if (params.q) usp.set("q", params.q);
+      const qs = usp.toString();
+      return apiRequest<AdminClaimListItem[]>(`/admin/claims${qs ? `?${qs}` : ""}`, { auth: true });
+    },
+    updateClaimStatus: (claimId: string, payload: { status: string; note?: string }) =>
+      apiRequest<{ ok: boolean }>(`/admin/claims/${claimId}/status`, { method: "POST", body: payload, auth: true }),
+    getClaim: (claimId: string) => apiRequest<Claim>(`/admin/claims/${claimId}`, { auth: true }),
+    getClaimTimeline: (claimId: string) => apiRequest<ClaimTimelineItem[]>(`/admin/claims/${claimId}/timeline`, { auth: true }),
+    getClaimDocuments: (claimId: string) => apiRequest<ClaimDocument[]>(`/admin/claims/${claimId}/documents`, { auth: true }),
+    changeUserPassword: (payload: { email: string; new_password: string }) =>
+      apiRequest<{ ok: boolean }>(`/admin/users/change-password`, { method: "POST", body: payload, auth: true }),
   },
 };

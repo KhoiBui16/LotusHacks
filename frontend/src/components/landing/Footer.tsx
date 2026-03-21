@@ -7,9 +7,7 @@ export default function Footer() {
       <div className="container max-w-6xl mx-auto px-4">
         <div className="flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-md bg-primary flex items-center justify-center font-display font-bold text-primary-foreground text-sm">
-              V
-            </div>
+            <img src="/vetc-insureassist-logo.svg" alt="VETC InsureAssist logo" className="w-7 h-7 rounded-md" />
             <span className="font-display font-semibold text-sm text-foreground">
               {t("footer.brand")}
             </span>

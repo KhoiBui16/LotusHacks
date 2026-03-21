@@ -53,9 +53,11 @@ export default function Navbar() {
     >
       <div className="container flex items-center justify-between h-16 md:h-20 px-4">
         <Link to="/" className="flex items-center gap-2 group shrink-0">
-          <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center font-display font-bold text-primary-foreground text-lg transition-transform duration-200 group-hover:scale-95 group-active:scale-90">
-            V
-          </div>
+          <img
+            src="/vetc-insureassist-logo.svg"
+            alt="VETC InsureAssist logo"
+            className="w-9 h-9 rounded-lg transition-transform duration-200 group-hover:scale-95 group-active:scale-90"
+          />
           <span className="font-display font-semibold text-lg text-foreground tracking-tight">
             VETC InsureAssist
           </span>

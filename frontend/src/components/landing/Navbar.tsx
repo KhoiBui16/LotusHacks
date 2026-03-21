@@ -14,6 +14,7 @@ export default function Navbar() {
   const isHome = location.pathname === "/";
   const { user } = useAuth();
   const { t, toggleLang, lang } = useLanguage();
+  const logoSrc = `${import.meta.env.BASE_URL}vetc-insureassist-logo.svg`;
 
   const navLinks = [
     { label: t("nav.about"), href: "#about", type: "anchor" as const },
@@ -54,7 +55,7 @@ export default function Navbar() {
       <div className="container flex items-center justify-between h-16 md:h-20 px-4">
         <Link to="/" className="flex items-center gap-2 group shrink-0">
           <img
-            src="/vetc-insureassist-logo.svg"
+            src={logoSrc}
             alt="VETC InsureAssist logo"
             className="w-9 h-9 rounded-lg transition-transform duration-200 group-hover:scale-95 group-active:scale-90"
           />

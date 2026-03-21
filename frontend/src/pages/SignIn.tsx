@@ -20,6 +20,7 @@ export default function SignIn() {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const logoSrc = `${import.meta.env.BASE_URL}vetc-insureassist-logo.svg`;
   const googleButtonRef = useRef<HTMLDivElement | null>(null);
 
   const googleClientId = useMemo(() => {
@@ -160,7 +161,7 @@ export default function SignIn() {
         <div className="relative z-10 px-12 max-w-lg">
           <Link to="/" className="flex items-center gap-3 mb-12 group">
             <img
-              src="/vetc-insureassist-logo.svg"
+              src={logoSrc}
               alt="VETC InsureAssist logo"
               className="w-12 h-12 rounded-xl transition-transform duration-200 group-hover:scale-95"
             />
@@ -181,7 +182,7 @@ export default function SignIn() {
           </Link>
           <div className="lg:hidden flex items-center gap-2 mb-8">
             <img
-              src="/vetc-insureassist-logo.svg"
+              src={logoSrc}
               alt="VETC InsureAssist logo"
               className="w-9 h-9 rounded-lg"
             />

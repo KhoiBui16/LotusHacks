@@ -63,8 +63,9 @@ interface VehicleData {
 }
 
 function toVehicleData(v: VehicleDetail, claimsCount: number): VehicleData {
+  const anyVehicle = v as VehicleDetail & { _id?: string };
   return {
-    id: v.id,
+    id: anyVehicle.id || anyVehicle._id || "",
     plate: v.plate ?? "",
     model: v.model ?? "",
     year: v.year ?? 0,
@@ -255,6 +256,23 @@ export default function Vehicles() {
     },
   });
 
+  const deleteVehicleMutation = useMutation({
+    mutationFn: async (id: string) => api.vehicles.delete(id),
+    onSuccess: async (_, id) => {
+      await qc.invalidateQueries({ queryKey: ["vehicles"] });
+      await qc.invalidateQueries({ queryKey: ["vehicle", id] });
+      setSelected((prev) => (prev === id ? null : prev));
+      toast({ title: "Vehicle deleted", description: "The vehicle was removed from your account." });
+    },
+    onError: (err) => {
+      toast({
+        title: "Delete vehicle failed",
+        description: getApiErrorMessage(err, "Please try again."),
+        variant: "destructive",
+      });
+    },
+  });
+
   const vehicleDetailQuery = useQuery<VehicleDetail, ApiError>({
     queryKey: ["vehicle", selected],
     queryFn: () => api.vehicles.get(selected as string),
@@ -396,9 +414,24 @@ export default function Vehicles() {
                 <TabsContent value="vehicle" className="space-y-4">
                   <Card className="border-border bg-card">
                     <CardHeader className="pb-2">
-                      <CardTitle className="text-base flex items-center gap-2">
-                        <Car className="w-4 h-4 text-primary" /> {t("vd.vehicleInfo")}
-                      </CardTitle>
+                      <div className="flex items-center justify-between gap-3">
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <Car className="w-4 h-4 text-primary" /> {t("vd.vehicleInfo")}
+                        </CardTitle>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          disabled={deleteVehicleMutation.isPending}
+                          onClick={() => {
+                            const vehicleId = selected || vehicle?.id;
+                            if (!vehicleId) return;
+                            const ok = window.confirm(`Delete vehicle ${vehicle.plate || vehicle.model}? This cannot be undone.`);
+                            if (ok) deleteVehicleMutation.mutate(vehicleId);
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4 mr-1" /> Delete
+                        </Button>
+                      </div>
                     </CardHeader>
                     <CardContent>
                       <div className="flex items-center gap-3 p-3 rounded-lg bg-secondary/50 mb-4">

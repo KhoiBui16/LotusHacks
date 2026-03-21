@@ -33,6 +33,7 @@ export type VehicleSummary = {
 
 export type VehicleDetail = {
   id: string;
+  _id?: string;
   no_plate_yet?: boolean;
   plate?: string | null;
   model?: string;
@@ -266,6 +267,7 @@ export const api = {
     list: () =>
       apiRequest<VehicleSummary[]>("/vehicles", { auth: true }),
     get: (id: string) => apiRequest<VehicleDetail>(`/vehicles/${id}`, { auth: true }),
+    delete: (id: string) => apiRequest<{ ok: boolean }>(`/vehicles/${id}`, { method: "DELETE", auth: true }),
     update: (id: string, payload: Partial<VehicleDetail>) =>
       apiRequest<VehicleDetail>(`/vehicles/${id}`, { method: "PATCH", body: payload, auth: true }),
     create: (payload: {
@@ -362,6 +364,8 @@ export const api = {
     },
     updateClaimStatus: (claimId: string, payload: { status: string; note?: string }) =>
       apiRequest<{ ok: boolean }>(`/admin/claims/${claimId}/status`, { method: "POST", body: payload, auth: true }),
+    deleteClaim: (claimId: string) =>
+      apiRequest<{ ok: boolean }>(`/admin/claims/${claimId}`, { method: "DELETE", auth: true }),
     getClaim: (claimId: string) => apiRequest<Claim>(`/admin/claims/${claimId}`, { auth: true }),
     getClaimTimeline: (claimId: string) => apiRequest<ClaimTimelineItem[]>(`/admin/claims/${claimId}/timeline`, { auth: true }),
     getClaimDocuments: (claimId: string) => apiRequest<ClaimDocument[]>(`/admin/claims/${claimId}/documents`, { auth: true }),

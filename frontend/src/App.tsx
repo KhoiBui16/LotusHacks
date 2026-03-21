@@ -24,7 +24,6 @@ import Notifications from "./pages/Notifications.tsx";
 import Settings from "./pages/Settings.tsx";
 import ChangePassword from "./pages/ChangePassword.tsx";
 import PolicyImport from "./pages/PolicyImport.tsx";
-import EligibilityDecision from "./pages/EligibilityDecision.tsx";
 import AssistedMode from "./pages/AssistedMode.tsx";
 import DocsCenter from "./pages/DocsCenter.tsx";
 import LegalTerms from "./pages/LegalTerms.tsx";
@@ -62,7 +61,6 @@ const App = () => (
             <Route path="/start-claim" element={<StartClaim />} />
             <Route path="/policy-import" element={<PolicyImport />} />
             <Route path="/incident-intake" element={<IncidentIntake />} />
-            <Route path="/eligibility" element={<EligibilityDecision />} />
             <Route path="/assisted-mode" element={<AssistedMode />} />
             <Route path="/emergency" element={<Emergency />} />
             <Route path="/checklist-upload" element={<ChecklistUpload />} />

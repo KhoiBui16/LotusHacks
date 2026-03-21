@@ -86,7 +86,7 @@ export default function AssistedMode() {
         </Card>
 
         <div className="flex justify-between">
-          <Button variant="outline" onClick={() => navigate("/eligibility")}>Back</Button>
+          <Button variant="outline" onClick={() => navigate("/incident-intake")}>Back</Button>
           <Button onClick={() => saveNotice.mutate()} disabled={!claimId || saveNotice.isPending}>Continue to documents</Button>
         </div>
       </main>

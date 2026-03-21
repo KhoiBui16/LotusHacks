@@ -195,6 +195,28 @@ async def admin_update_claim_status(
     return OkResponse()
 
 
+@router.delete("/claims/{claim_id}", response_model=OkResponse)
+async def admin_delete_claim(
+    claim_id: str,
+    admin: Annotated[UserInDB, Depends(get_current_admin)],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+) -> OkResponse:
+    del admin
+    try:
+        claim_oid = ObjectId(claim_id)
+    except InvalidId:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid claim id")
+
+    claim_doc = await db["claims"].find_one({"_id": claim_oid}, {"_id": 1})
+    if not claim_doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
+
+    await db["claim_documents"].delete_many({"claim_id": claim_oid})
+    await db["notifications"].delete_many({"claim_id": claim_oid})
+    await db["claims"].delete_one({"_id": claim_oid})
+    return OkResponse()
+
+
 @router.post("/users/change-password", response_model=OkResponse)
 async def admin_change_user_password(
     payload: AdminUserPasswordChangeRequest,

@@ -224,11 +224,11 @@ export default function IncidentIntake() {
       await api.claims.triage(claimId);
     },
     onSuccess: () => {
-      if (data.hasInjury || data.hasThirdParty) {
-        navigate("/assisted-mode");
+      if (data.hasInjury) {
+        navigate("/chat");
         return;
       }
-      navigate("/eligibility");
+      navigate("/assisted-mode");
     },
     onError: (err) => {
       toast({

@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { Bell, ChevronRight, FileText, Search } from "lucide-react";
+import { Bell, ChevronRight, FileText, Search, Trash2 } from "lucide-react";
 
 const STATUS_OPTIONS = ["processing", "needs-docs", "approved", "rejected", "closed"];
 
@@ -49,6 +49,22 @@ export default function AdminDashboard() {
       toast({
         title: "Update failed",
         description: err instanceof Error ? err.message : "Could not update claim status.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (claimId: string) => api.admin.deleteClaim(claimId),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["admin-claims"] });
+      await qc.invalidateQueries({ queryKey: ["notifications"] });
+      toast({ title: "Claim deleted", description: "The claim has been removed." });
+    },
+    onError: (err) => {
+      toast({
+        title: "Delete failed",
+        description: err instanceof Error ? err.message : "Could not delete claim.",
         variant: "destructive",
       });
     },
@@ -123,6 +139,17 @@ export default function AdminDashboard() {
                           ))}
                           <Button size="sm" variant="ghost" asChild>
                             <Link to={`/claim-tracking/${claim.id}`}>Claim Detail <ChevronRight className="w-4 h-4 ml-1" /></Link>
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            disabled={deleteMutation.isPending}
+                            onClick={() => {
+                              const ok = window.confirm(`Delete claim ${claim.id.slice(-8)}? This cannot be undone.`);
+                              if (ok) deleteMutation.mutate(claim.id);
+                            }}
+                          >
+                            <Trash2 className="w-4 h-4 mr-1" /> Delete
                           </Button>
                         </div>
                       </CardContent>

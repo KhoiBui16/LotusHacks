@@ -308,9 +308,20 @@ export default function IncidentIntake() {
           has_injury: Boolean(data.hasInjury),
         },
       });
-      return api.claims.triage(claimId);
+      const triageResult = await api.claims.triage(claimId);
+      if (triageResult.assisted_mode) {
+        return { claimId, triageResult, eligibilityResult: null, chatBootstrap: null };
+      }
+
+      const eligibilityResult = await api.claims.eligibility(claimId);
+      if (eligibilityResult.next_action === "chat") {
+        const chatBootstrap = await api.claims.bootstrapChat(claimId);
+        return { claimId, triageResult, eligibilityResult, chatBootstrap };
+      }
+
+      return { claimId, triageResult, eligibilityResult, chatBootstrap: null };
     },
-    onSuccess: (triageResult) => {
+    onSuccess: ({ triageResult, eligibilityResult, chatBootstrap }) => {
       sessionStorage.setItem(
         INCIDENT_DRAFT_KEY,
         JSON.stringify({
@@ -323,7 +334,27 @@ export default function IncidentIntake() {
         navigate("/assisted-mode");
         return;
       }
-      navigate("/chat");
+
+      if (eligibilityResult?.next_action === "chat" && chatBootstrap?.session_id) {
+        navigate(`/chat?sessionId=${encodeURIComponent(chatBootstrap.session_id)}`);
+        return;
+      }
+
+      if (eligibilityResult?.next_action === "assisted") {
+        navigate("/assisted-mode");
+        return;
+      }
+
+      if (eligibilityResult?.next_action === "exit") {
+        navigate("/claim-advice");
+        return;
+      }
+
+      toast({
+        title: "Cannot continue",
+        description: "Claim flow is waiting for the next supported step.",
+        variant: "destructive",
+      });
     },
     onError: (err) => {
       toast({

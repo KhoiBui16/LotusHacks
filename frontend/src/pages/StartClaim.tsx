@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLanguage } from "@/contexts/LanguageContext";
 import Navbar from "@/components/landing/Navbar";
 import { Button } from "@/components/ui/button";
@@ -7,18 +8,48 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Car, ShieldCheck, AlertTriangle, Upload, ArrowRight, CheckCircle2, ChevronLeft } from "lucide-react";
-
-const mockVehicles = [
-  { id: "v1", plate: "51A-123.45", model: "Toyota Camry 2023", policyLinked: true, policyId: "POL-2024-00891", insurer: "Bảo Việt", expiry: "2025-06-30" },
-  { id: "v2", plate: "30H-567.89", model: "Honda CR-V 2022", policyLinked: false, policyId: null, insurer: null, expiry: null },
-];
+import { api } from "@/lib/api";
+import { ApiError } from "@/lib/apiClient";
 
 export default function StartClaim() {
   const navigate = useNavigate();
   const { t } = useLanguage();
   const [selectedVehicle, setSelectedVehicle] = useState<string | null>(null);
   const [showImport, setShowImport] = useState(false);
-  const vehicle = mockVehicles.find((v) => v.id === selectedVehicle);
+
+  const vehiclesQuery = useQuery({
+    queryKey: ["vehicles"],
+    queryFn: api.vehicles.list,
+  });
+
+  const vehicles = useMemo(
+    () =>
+      (vehiclesQuery.data ?? []).map((v) => ({
+        id: v.id,
+        plate: v.plate || "—",
+        model: `${v.model} ${v.year}`,
+        policyLinked: Boolean(v.policy_linked),
+        policyId: v.policy_id ?? null,
+        insurer: v.insurer ?? null,
+        expiry: v.expiry ?? null,
+      })),
+    [vehiclesQuery.data]
+  );
+
+  const vehicle = vehicles.find((v) => v.id === selectedVehicle);
+
+  const createClaim = useMutation({
+    mutationFn: () =>
+      api.claims.create({
+        vehicle_id: selectedVehicle as string,
+        policy_id: vehicle?.policyId ?? undefined,
+        insurer: vehicle?.insurer ?? undefined,
+      }),
+    onSuccess: (claim) => {
+      if (claim?.id) sessionStorage.setItem("activeClaimId", claim.id);
+      navigate("/incident-intake");
+    },
+  });
 
   return (
     <div className="min-h-screen bg-background">
@@ -32,7 +63,15 @@ export default function StartClaim() {
         <div className="space-y-3">
           <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">{t("sc.step1")}</h2>
           <div className="grid gap-3">
-            {mockVehicles.map((v) => (
+            {vehiclesQuery.isError && (vehiclesQuery.error as ApiError)?.status === 401 ? (
+              <Card className="border-border bg-card">
+                <CardContent className="py-6 text-sm text-muted-foreground">
+                  Please sign in to continue.
+                </CardContent>
+              </Card>
+            ) : null}
+
+            {vehicles.map((v) => (
               <Card key={v.id} className={`cursor-pointer transition-all border-2 ${selectedVehicle === v.id ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`} onClick={() => { setSelectedVehicle(v.id); setShowImport(false); }}>
                 <CardContent className="flex items-center justify-between py-4">
                   <div className="flex items-center gap-3">
@@ -96,7 +135,7 @@ export default function StartClaim() {
 
         {vehicle?.policyLinked && (
           <div className="pt-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <Button className="w-full" size="lg" onClick={() => navigate("/incident-intake")}>
+            <Button className="w-full" size="lg" onClick={() => createClaim.mutate()} disabled={createClaim.isPending}>
               {t("sc.continue")} <ArrowRight className="w-4 h-4 ml-1" />
             </Button>
           </div>

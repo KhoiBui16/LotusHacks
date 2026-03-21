@@ -12,7 +12,7 @@ export class ApiError extends Error {
 }
 
 function getBaseUrl(): string {
-  const fromEnv = (import.meta as any)?.env?.VITE_API_BASE_URL as string | undefined;
+  const fromEnv = import.meta.env.VITE_API_BASE_URL as string | undefined;
   return (fromEnv && fromEnv.trim()) || "http://localhost:8000";
 }
 
@@ -64,13 +64,13 @@ export async function apiRequest<T>(
   const payload = contentType.includes("application/json") ? await res.json() : await res.text();
 
   if (!res.ok) {
-    const message =
-      (payload && typeof payload === "object" && "detail" in payload && (payload as any).detail) ||
-      res.statusText ||
-      "Request failed";
+    let message = res.statusText || "Request failed";
+    if (payload && typeof payload === "object" && "detail" in payload) {
+      const detail = (payload as Record<string, unknown>).detail;
+      if (typeof detail === "string" && detail.trim()) message = detail;
+    }
     throw new ApiError(String(message), res.status, payload);
   }
 
   return payload as T;
 }
-

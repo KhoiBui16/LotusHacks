@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { useLanguage } from "@/contexts/LanguageContext";
 import Navbar from "@/components/landing/Navbar";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,9 @@ import {
   FileText, Trash2, User, MapPin, Phone, Mail, CreditCard, Calendar,
   Weight, Users, Hash, Palette, Camera, X, Save, CheckCircle2
 } from "lucide-react";
+import { api } from "@/lib/api";
+import { ApiError } from "@/lib/apiClient";
+import type { VehicleDetail, VehicleSummary } from "@/lib/api";
 
 interface VehicleData {
   id: string;
@@ -56,50 +60,48 @@ interface VehicleData {
   claims: number;
 }
 
-const mockVehicles: VehicleData[] = [
-  {
-    id: "v1", plate: "51A-123.45", model: "Toyota Camry 2.5Q", year: 2023, color: "White",
-    vehicleType: "Sedan", seats: 5, weight: "1.57", chassisNumber: "JTDKN3DU5A0123456", engineNumber: "2AR-FE-7891011",
-    noPlateYet: false, usage: "personal",
-    policyLinked: true, policyId: "POL-2024-00891", insurer: "Bảo Việt", expiry: "2025-06-30",
-    effectiveDate: "2024-06-30", insuranceYears: 2, premium: "4,200,000₫",
-    additionalBenefits: ["Accident insurance for driver & passengers"],
-    buyerType: "individual", buyerName: "Nguyễn Văn An", buyerDob: "1990-05-15", buyerAge: 35,
-    buyerGender: "Male", buyerPhone: "+84 912 345 678", buyerEmail: "an.nguyen@email.com",
-    buyerIdNumber: "079190012345", buyerAddress: "123 Nguyễn Huệ, Q.1, TP.HCM",
-    ownerSameAsBuyer: true, ownerName: "Nguyễn Văn An", ownerPhone: "+84 912 345 678",
-    ownerEmail: "an.nguyen@email.com", ownerAddress: "123 Nguyễn Huệ, Q.1, TP.HCM",
-    claims: 2,
-  },
-  {
-    id: "v2", plate: "30H-567.89", model: "Honda CR-V 1.5L", year: 2022, color: "Black",
-    vehicleType: "SUV", seats: 7, weight: "1.69", chassisNumber: "2HKRW2H53MH654321", engineNumber: "L15B-4567890",
-    noPlateYet: false, usage: "personal",
-    policyLinked: false, policyId: null, insurer: null, expiry: null,
-    effectiveDate: null, insuranceYears: 0, premium: "0₫",
-    additionalBenefits: [],
-    buyerType: "individual", buyerName: "Trần Thị Bình", buyerDob: "1988-11-20", buyerAge: 37,
-    buyerGender: "Female", buyerPhone: "+84 903 456 789", buyerEmail: "binh.tran@email.com",
-    buyerIdNumber: "001188098765", buyerAddress: "45 Láng Hạ, Đống Đa, Hà Nội",
-    ownerSameAsBuyer: false, ownerName: "Trần Minh Châu", ownerPhone: "+84 909 111 222",
-    ownerEmail: "chau.tm@email.com", ownerAddress: "78 Kim Mã, Ba Đình, Hà Nội",
-    claims: 1,
-  },
-  {
-    id: "v3", plate: "43A-999.01", model: "Mazda CX-5 2.0 Premium", year: 2024, color: "Red",
-    vehicleType: "SUV", seats: 5, weight: "1.59", chassisNumber: "JM3KFBDM5R0987654", engineNumber: "PE-VPS-1234567",
-    noPlateYet: false, usage: "commercial",
-    policyLinked: true, policyId: "POL-2024-01234", insurer: "PVI Insurance", expiry: "2025-12-15",
-    effectiveDate: "2024-12-15", insuranceYears: 1, premium: "5,800,000₫",
-    additionalBenefits: ["Accident insurance for driver & passengers", "Flood / water damage coverage"],
-    buyerType: "business", buyerName: "Công ty TNHH Minh Phát Logistics", buyerDob: "", buyerAge: 0,
-    buyerGender: "", buyerPhone: "+84 286 123 456", buyerEmail: "info@minhphat.vn",
-    buyerIdNumber: "0312345678", buyerAddress: "200 Võ Văn Kiệt, Q.1, TP.HCM",
-    ownerSameAsBuyer: true, ownerName: "Công ty TNHH Minh Phát Logistics", ownerPhone: "+84 286 123 456",
-    ownerEmail: "info@minhphat.vn", ownerAddress: "200 Võ Văn Kiệt, Q.1, TP.HCM",
-    claims: 0,
-  },
-];
+function toVehicleData(v: VehicleDetail, claimsCount: number): VehicleData {
+  return {
+    id: v.id,
+    plate: v.plate ?? "",
+    model: v.model ?? "",
+    year: v.year ?? 0,
+    color: v.color ?? "",
+    vehicleType: v.vehicle_type ?? "",
+    seats: v.seats ?? 0,
+    weight: String(v.weight_tons ?? ""),
+    chassisNumber: v.chassis_number ?? "",
+    engineNumber: v.engine_number ?? "",
+    noPlateYet: Boolean(v.no_plate_yet),
+    usage: v.usage ?? "personal",
+    policyLinked: Boolean(v.policy_linked),
+    policyId: v.policy_id ?? null,
+    insurer: v.insurer ?? null,
+    expiry: v.expiry ?? null,
+    effectiveDate: v.effective_date ?? null,
+    insuranceYears: v.insurance_years ?? 0,
+    premium:
+      typeof v.premium_amount === "number"
+        ? `${v.premium_amount}${v.premium_currency ? ` ${v.premium_currency}` : ""}`
+        : "",
+    additionalBenefits: Array.isArray(v.additional_benefits) ? v.additional_benefits : [],
+    buyerType: v.buyer_type ?? "individual",
+    buyerName: v.buyer_name ?? "",
+    buyerDob: v.buyer_dob ?? "",
+    buyerAge: v.buyer_age ?? 0,
+    buyerGender: v.buyer_gender ?? "",
+    buyerPhone: v.buyer_phone ?? "",
+    buyerEmail: v.buyer_email ?? "",
+    buyerIdNumber: v.buyer_id_number ?? "",
+    buyerAddress: v.buyer_address ?? "",
+    ownerSameAsBuyer: Boolean(v.owner_same_as_buyer),
+    ownerName: v.owner_name ?? "",
+    ownerPhone: v.owner_phone ?? "",
+    ownerEmail: v.owner_email ?? "",
+    ownerAddress: v.owner_address ?? "",
+    claims: claimsCount,
+  };
+}
 
 function InfoRow({ label, value, icon: Icon }: { label: string; value: string | number; icon?: React.ElementType }) {
   return (
@@ -114,9 +116,34 @@ function InfoRow({ label, value, icon: Icon }: { label: string; value: string | 
 }
 
 export default function Vehicles() {
-  const [selected, setSelected] = useState<string | null>("v1");
+  const [selected, setSelected] = useState<string | null>(null);
   const { t } = useLanguage();
-  const vehicle = mockVehicles.find((v) => v.id === selected);
+
+  const vehiclesQuery = useQuery<VehicleSummary[], ApiError>({
+    queryKey: ["vehicles"],
+    queryFn: api.vehicles.list,
+  });
+
+  const vehicles = vehiclesQuery.data ?? [];
+  const claimsCountByVehicle = useMemo(() => {
+    const map = new Map<string, number>();
+    vehicles.forEach((v) => map.set(v.id, v.claims_count ?? 0));
+    return map;
+  }, [vehicles]);
+
+  useEffect(() => {
+    if (!selected && vehicles.length > 0) setSelected(vehicles[0].id);
+  }, [selected, vehicles]);
+
+  const vehicleDetailQuery = useQuery<VehicleDetail, ApiError>({
+    queryKey: ["vehicle", selected],
+    queryFn: () => api.vehicles.get(selected as string),
+    enabled: Boolean(selected),
+  });
+
+  const vehicle = vehicleDetailQuery.data
+    ? toVehicleData(vehicleDetailQuery.data, claimsCountByVehicle.get(vehicleDetailQuery.data.id) ?? 0)
+    : null;
 
   return (
     <div className="min-h-screen bg-background">
@@ -136,7 +163,15 @@ export default function Vehicles() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Vehicle List - Left */}
           <div className="lg:col-span-4 space-y-3">
-            {mockVehicles.map((v) => (
+            {vehiclesQuery.isError && (vehiclesQuery.error as ApiError)?.status === 401 ? (
+              <Card className="border-border bg-card">
+                <CardContent className="py-6 text-sm text-muted-foreground">
+                  Please sign in to view your vehicles.
+                </CardContent>
+              </Card>
+            ) : null}
+
+            {vehicles.map((v) => (
               <Card
                 key={v.id}
                 className={`cursor-pointer transition-all border-2 ${selected === v.id ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
@@ -148,13 +183,13 @@ export default function Vehicles() {
                       <Car className="w-5 h-5 text-primary" />
                     </div>
                     <div>
-                      <p className="font-display font-bold text-foreground text-sm">{v.plate}</p>
+                      <p className="font-display font-bold text-foreground text-sm">{v.plate || "—"}</p>
                       <p className="text-xs text-muted-foreground">{v.model}</p>
                       <p className="text-xs text-muted-foreground">{v.color} · {v.year}</p>
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-1">
-                    {v.policyLinked ? (
+                    {v.policy_linked ? (
                       <Badge variant="outline" className="border-primary/40 text-primary bg-primary/10 gap-1 text-[10px]">
                         <ShieldCheck className="w-3 h-3" /> {t("vh.linked")}
                       </Badge>
@@ -163,7 +198,7 @@ export default function Vehicles() {
                         <AlertTriangle className="w-3 h-3" /> {t("vh.noPolicy")}
                       </Badge>
                     )}
-                    <span className="text-[10px] text-muted-foreground">{v.claims} {t("vh.claim(s)")}</span>
+                    <span className="text-[10px] text-muted-foreground">{v.claims_count} {t("vh.claim(s)")}</span>
                   </div>
                 </CardContent>
               </Card>

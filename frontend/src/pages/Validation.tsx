@@ -1,24 +1,46 @@
 import { useNavigate } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLanguage } from "@/contexts/LanguageContext";
 import Navbar from "@/components/landing/Navbar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, XCircle, AlertTriangle, Upload, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
+import { api } from "@/lib/api";
+import type { ValidationResponse, ValidationResult } from "@/lib/api";
+import type { TranslationKey } from "@/i18n/translations";
 
 export default function Validation() {
   const navigate = useNavigate();
   const { t } = useLanguage();
+  const qc = useQueryClient();
+  const claimId = sessionStorage.getItem("activeClaimId") || "";
 
-  const mockResults = [
-    { name: t("cl.overallVehicle"), status: "valid" as const, note: "Clear, well-lit" },
-    { name: t("cl.damageCloseup"), status: "invalid" as const, note: "Image too blurry — please retake" },
-    { name: t("cl.accidentScene"), status: "valid" as const, note: "Accepted" },
-    { name: t("cl.registration"), status: "valid" as const, note: "OCR extracted successfully" },
-    { name: t("cl.driverLicense"), status: "valid" as const, note: "Verified" },
-    { name: t("cl.insuranceCert"), status: "missing" as const, note: "Not uploaded — required" },
-    { name: t("cl.policeReport"), status: "valid" as const, note: "Optional — uploaded" },
-  ];
+  const labelKeyByDocType: Record<string, string> = {
+    "vehicle-overall": "cl.overallVehicle",
+    "damage-closeup": "cl.damageCloseup",
+    scene: "cl.accidentScene",
+    registration: "cl.registration",
+    "driver-license": "cl.driverLicense",
+    "insurance-cert": "cl.insuranceCert",
+    "police-report": "cl.policeReport",
+  };
+
+  const validateQuery = useQuery<ValidationResponse>({
+    queryKey: ["claim-validate", claimId],
+    queryFn: () => api.claims.validate(claimId),
+    enabled: Boolean(claimId),
+  });
+
+  const results =
+    (validateQuery.data?.results ?? []).map((r: ValidationResult) => ({
+      doc_type: r.doc_type,
+      name: labelKeyByDocType[r.doc_type]
+        ? t(labelKeyByDocType[r.doc_type] as TranslationKey)
+        : r.doc_type,
+      status: r.status as "valid" | "invalid" | "missing",
+      note: r.note ?? "",
+    })) ?? [];
 
   const statusConfig = {
     valid: { icon: CheckCircle2, color: "text-primary", bg: "bg-primary/15", badge: "border-primary/30 text-primary bg-primary/10", label: t("val.valid") },
@@ -26,7 +48,7 @@ export default function Validation() {
     missing: { icon: AlertTriangle, color: "text-yellow-400", bg: "bg-yellow-500/15", badge: "border-yellow-500/30 text-yellow-400 bg-yellow-500/10", label: t("val.missing") },
   };
 
-  const issues = mockResults.filter((r) => r.status !== "valid");
+  const issues = results.filter((r) => r.status !== "valid");
   const allGood = issues.length === 0;
 
   return (
@@ -50,7 +72,7 @@ export default function Validation() {
         </Card>
 
         <div className="space-y-3">
-          {mockResults.map((r, i) => {
+          {results.map((r, i) => {
             const sc = statusConfig[r.status];
             const Icon = sc.icon;
             return (
@@ -64,7 +86,7 @@ export default function Validation() {
                   <div className="flex items-center gap-2 shrink-0">
                     <Badge variant="outline" className={`text-xs ${sc.badge}`}>{sc.label}</Badge>
                     {r.status !== "valid" && (
-                      <Button size="sm" variant="outline"><Upload className="w-3 h-3 mr-1" /> {r.status === "missing" ? t("cl.upload") : t("val.reupload")}</Button>
+                      <Button size="sm" variant="outline" onClick={() => navigate("/checklist-upload")}><Upload className="w-3 h-3 mr-1" /> {r.status === "missing" ? t("cl.upload") : t("val.reupload")}</Button>
                     )}
                   </div>
                 </CardContent>
@@ -76,7 +98,7 @@ export default function Validation() {
         <div className="flex justify-between pt-4">
           <Button variant="outline" onClick={() => navigate("/checklist-upload")}><ChevronLeft className="w-4 h-4 mr-1" /> {t("val.backToUpload")}</Button>
           <div className="flex gap-2">
-            <Button variant="outline"><RefreshCw className="w-4 h-4 mr-1" /> {t("val.revalidate")}</Button>
+            <Button variant="outline" onClick={() => qc.invalidateQueries({ queryKey: ["claim-validate", claimId] })} disabled={!claimId}><RefreshCw className="w-4 h-4 mr-1" /> {t("val.revalidate")}</Button>
             <Button onClick={() => navigate("/review-submit")} disabled={!allGood}>{t("val.reviewClaim")} <ChevronRight className="w-4 h-4 ml-1" /></Button>
           </div>
         </div>

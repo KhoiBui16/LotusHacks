@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useMutation } from "@tanstack/react-query";
 import { useLanguage } from "@/contexts/LanguageContext";
 import Navbar from "@/components/landing/Navbar";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,7 @@ import {
   ChevronLeft, ChevronRight, Check, MapPin, Clock, FileText, Users, Heart
 } from "lucide-react";
 import { TranslationKey } from "@/i18n/translations";
+import { api } from "@/lib/api";
 
 export default function IncidentIntake() {
   const navigate = useNavigate();
@@ -60,11 +62,33 @@ export default function IncidentIntake() {
 
   const handleNext = () => {
     if (step < STEPS.length - 1) setStep(step + 1);
-    else {
+    else finish.mutate();
+  };
+
+  const finish = useMutation({
+    mutationFn: async () => {
+      const claimId = sessionStorage.getItem("activeClaimId");
+      if (!claimId) return;
+      await api.claims.patch(claimId, {
+        incident: {
+          type: data.type,
+          date: data.date,
+          time: data.time || null,
+          location_text: data.location,
+          description: data.description || null,
+          has_third_party: Boolean(data.hasThirdParty),
+          third_party_info: data.hasThirdParty ? data.thirdPartyInfo || null : null,
+          can_drive: data.canDrive ?? true,
+          needs_towing: data.needsTowing ?? false,
+          has_injury: Boolean(data.hasInjury),
+        },
+      });
+    },
+    onSuccess: () => {
       if (data.hasInjury || data.hasThirdParty) navigate("/emergency");
       else navigate("/checklist-upload");
-    }
-  };
+    },
+  });
 
   const YesNo = ({ value, onChange }: { value: boolean | null; onChange: (v: boolean) => void }) => (
     <div className="flex gap-3">

@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { useLanguage } from "@/contexts/LanguageContext";
 import Navbar from "@/components/landing/Navbar";
 import { Button } from "@/components/ui/button";
@@ -9,16 +10,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FileText, Clock, CheckCircle2, XCircle, AlertTriangle, Plus, ChevronLeft, ChevronRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Search } from "lucide-react";
-
-const allClaims = [
-  { id: "CLM-004", type: "Collision", date: "2024-12-20", vehicle: "51A-123.45", insurer: "Bảo Việt", status: "processing", amount: null },
-  { id: "CLM-003", type: "Scratch", date: "2024-10-10", vehicle: "30H-567.89", insurer: "PVI", status: "closed", amount: "5,000,000 VND" },
-  { id: "CLM-002", type: "Glass Breakage", date: "2024-11-28", vehicle: "51A-123.45", insurer: "Bảo Việt", status: "approved", amount: "8,500,000 VND" },
-  { id: "CLM-001", type: "Collision", date: "2024-12-15", vehicle: "51A-123.45", insurer: "Bảo Việt", status: "processing", amount: null },
-  { id: "CLM-005", type: "Flood", date: "2024-09-05", vehicle: "43A-999.01", insurer: "PVI", status: "rejected", amount: null },
-  { id: "CLM-006", type: "Part Theft", date: "2024-08-20", vehicle: "30H-567.89", insurer: "PVI", status: "draft", amount: null },
-  { id: "CLM-007", type: "Scratch", date: "2024-12-18", vehicle: "51A-123.45", insurer: "Bảo Việt", status: "needs-docs", amount: null },
-];
+import { api } from "@/lib/api";
+import { ApiError } from "@/lib/apiClient";
+import type { ClaimListItem } from "@/lib/api";
 
 export default function Claims() {
   const { t } = useLanguage();
@@ -44,11 +38,30 @@ export default function Claims() {
     { value: "draft", label: t("claims.draft") },
   ];
 
-  const filtered = allClaims.filter((c) => {
-    if (tab !== "all" && c.status !== tab) return false;
-    if (search && !c.id.toLowerCase().includes(search.toLowerCase()) && !c.type.toLowerCase().includes(search.toLowerCase()) && !c.vehicle.includes(search)) return false;
-    return true;
+  const countsQuery = useQuery<ClaimListItem[], ApiError>({
+    queryKey: ["claims-counts"],
+    queryFn: () => api.claims.list({}),
   });
+
+  const claimsQuery = useQuery<ClaimListItem[], ApiError>({
+    queryKey: ["claims", tab, search],
+    queryFn: () =>
+      api.claims.list({
+        status: tab === "all" ? undefined : tab,
+        q: search || undefined,
+      }),
+  });
+
+  const countsByStatus = useMemo(() => {
+    const map: Record<string, number> = {};
+    (countsQuery.data ?? []).forEach((c) => {
+      map[c.status] = (map[c.status] ?? 0) + 1;
+    });
+    return map;
+  }, [countsQuery.data]);
+
+  const filtered = claimsQuery.data ?? [];
+  const totalClaims = (countsQuery.data ?? []).length;
 
   return (
     <div className="min-h-screen bg-background">
@@ -58,7 +71,7 @@ export default function Claims() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-display font-bold text-foreground">{t("claims.title")}</h1>
-            <p className="text-muted-foreground mt-1">{allClaims.length} {t("claims.totalClaims")}</p>
+            <p className="text-muted-foreground mt-1">{totalClaims} {t("claims.totalClaims")}</p>
           </div>
           <Button size="sm" asChild><Link to="/start-claim"><Plus className="w-4 h-4 mr-1" /> {t("claims.newClaim")}</Link></Button>
         </div>
@@ -73,11 +86,18 @@ export default function Claims() {
             {tabs.map((tb) => (
               <TabsTrigger key={tb.value} value={tb.value} className="text-xs shrink-0">
                 {tb.label}
-                {tb.value !== "all" && <span className="ml-1 text-[10px] opacity-60">({allClaims.filter((c) => c.status === tb.value).length})</span>}
+                {tb.value !== "all" && <span className="ml-1 text-[10px] opacity-60">({countsByStatus[tb.value] ?? 0})</span>}
               </TabsTrigger>
             ))}
           </TabsList>
           <TabsContent value={tab} className="mt-4">
+            {claimsQuery.isError && (claimsQuery.error as ApiError)?.status === 401 ? (
+              <Card className="border-border bg-card">
+                <CardContent className="py-12 text-center">
+                  <p className="text-sm text-muted-foreground">Please sign in to view your claims.</p>
+                </CardContent>
+              </Card>
+            ) : null}
             {filtered.length === 0 ? (
               <Card className="border-border bg-card"><CardContent className="py-12 text-center"><FileText className="w-10 h-10 text-muted-foreground mx-auto mb-3" /><p className="text-sm text-muted-foreground">{t("claims.noClaims")}</p></CardContent></Card>
             ) : (
@@ -92,12 +112,16 @@ export default function Claims() {
                           <div className="flex items-center gap-4 min-w-0">
                             <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center shrink-0"><Icon className="w-5 h-5 text-muted-foreground" /></div>
                             <div className="min-w-0">
-                              <div className="flex items-center gap-2"><p className="text-sm font-semibold text-foreground">{claim.id}</p><span className="text-xs text-muted-foreground">· {claim.type}</span></div>
-                              <p className="text-xs text-muted-foreground">{claim.vehicle} · {claim.insurer} · {claim.date}</p>
+                              <div className="flex items-center gap-2"><p className="text-sm font-semibold text-foreground">{String(claim.id).slice(-8)}</p><span className="text-xs text-muted-foreground">· {claim.type}</span></div>
+                              <p className="text-xs text-muted-foreground">{claim.vehicle_plate || "—"} · {claim.insurer || "—"} · {claim.date}</p>
                             </div>
                           </div>
                           <div className="flex items-center gap-3 shrink-0">
-                            {claim.amount && <span className="text-sm font-medium text-foreground hidden sm:block">{claim.amount}</span>}
+                            {claim.amount_value && (
+                              <span className="text-sm font-medium text-foreground hidden sm:block">
+                                {claim.amount_value} {claim.amount_currency || ""}
+                              </span>
+                            )}
                             <Badge variant="outline" className={`text-xs ${sc.color}`}>{sc.label}</Badge>
                             <ChevronRight className="w-4 h-4 text-muted-foreground" />
                           </div>

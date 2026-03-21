@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLanguage } from "@/contexts/LanguageContext";
 import Navbar from "@/components/landing/Navbar";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,8 @@ import {
   ChevronLeft, ChevronRight, Car, ShieldAlert, MapPin, CreditCard, FileText, FileWarning, Image
 } from "lucide-react";
 import { TranslationKey } from "@/i18n/translations";
+import { api } from "@/lib/api";
+import type { ClaimDocument } from "@/lib/api";
 
 interface DocItem {
   id: string; labelKey: TranslationKey; required: boolean; icon: React.ElementType;
@@ -20,6 +23,8 @@ interface DocItem {
 export default function ChecklistUpload() {
   const navigate = useNavigate();
   const { t } = useLanguage();
+  const qc = useQueryClient();
+  const claimId = sessionStorage.getItem("activeClaimId") || "";
 
   const [docs, setDocs] = useState<DocItem[]>([
     { id: "vehicle-overall", labelKey: "cl.overallVehicle", required: true, icon: Car, status: "pending" },
@@ -36,9 +41,48 @@ export default function ChecklistUpload() {
   const requiredDone = docs.filter((d) => d.required && d.status === "uploaded").length;
   const progress = Math.round((uploaded / docs.length) * 100);
 
-  const simulateUpload = (id: string) => {
-    setDocs((prev) => prev.map((d) => d.id === id ? { ...d, status: Math.random() > 0.15 ? "uploaded" : "error" } : d));
-  };
+  const documentsQuery = useQuery({
+    queryKey: ["claim-documents", claimId],
+    queryFn: () => api.claims.documents(claimId),
+    enabled: Boolean(claimId),
+  });
+
+  useEffect(() => {
+    const remote = (documentsQuery.data ?? []) as ClaimDocument[];
+    if (remote.length === 0) return;
+    setDocs((prev) =>
+      prev.map((d) => {
+        const r = remote.find((x) => x.doc_type === d.id);
+        if (!r) return d;
+        const status =
+          r.status === "uploaded" || r.status === "valid"
+            ? "uploaded"
+            : r.status === "error"
+              ? "error"
+              : "pending";
+        return { ...d, status };
+      })
+    );
+  }, [documentsQuery.data]);
+
+  const uploadDoc = useMutation({
+    mutationFn: async (docType: string) => {
+      if (!claimId) throw new Error("No active claim");
+      const file = await new Promise<File | null>((resolve) => {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = "image/*,application/pdf";
+        input.onchange = () => resolve(input.files?.[0] ?? null);
+        input.click();
+      });
+      if (!file) return;
+      const upload = await api.uploads.upload(file, "claim_doc");
+      await api.claims.attachDocument(claimId, { doc_type: docType, upload_id: upload.upload_id });
+    },
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["claim-documents", claimId] });
+    },
+  });
 
   const statusIcon = (s: DocItem["status"]) => {
     if (s === "uploaded") return <CheckCircle2 className="w-5 h-5 text-primary" />;
@@ -86,7 +130,7 @@ export default function ChecklistUpload() {
                   <div className="flex items-center gap-2 shrink-0">
                     {statusIcon(doc.status)}
                     {doc.status !== "uploaded" && (
-                      <Button size="sm" variant="outline" onClick={() => simulateUpload(doc.id)}><Upload className="w-3 h-3 mr-1" /> {t("cl.upload")}</Button>
+                      <Button size="sm" variant="outline" onClick={() => uploadDoc.mutate(doc.id)} disabled={uploadDoc.isPending}><Upload className="w-3 h-3 mr-1" /> {t("cl.upload")}</Button>
                     )}
                   </div>
                 </CardContent>

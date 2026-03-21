@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLanguage } from "@/contexts/LanguageContext";
 import Navbar from "@/components/landing/Navbar";
 import { Button } from "@/components/ui/button";
@@ -10,18 +11,78 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ChevronLeft, Bell, Mail, Smartphone, MessageSquare, User, Shield, Globe, Save, CheckCircle2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { api } from "@/lib/api";
+import { ApiError } from "@/lib/apiClient";
 
 export default function Settings() {
   const { user } = useAuth();
   const { t, lang } = useLanguage();
   const [saved, setSaved] = useState(false);
+  const [profile, setProfile] = useState({ fullName: "", email: "", phone: "" });
   const [prefs, setPrefs] = useState({
     pushNotif: true, emailNotif: true, inAppNotif: true,
     claimUpdates: true, docReminders: true, marketingEmails: false,
     preferredContact: "email" as "email" | "phone" | "chat",
   });
 
-  const handleSave = () => { setSaved(true); setTimeout(() => setSaved(false), 2000); };
+  const meQuery = useQuery({ queryKey: ["me"], queryFn: api.me.get });
+  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: api.settings.get });
+
+  useEffect(() => {
+    if (meQuery.data) {
+      setProfile({
+        fullName: meQuery.data.full_name ?? user?.name ?? "",
+        email: meQuery.data.email ?? user?.email ?? "",
+        phone: meQuery.data.phone ?? "",
+      });
+    }
+  }, [meQuery.data, user?.email, user?.name]);
+
+  useEffect(() => {
+    if (settingsQuery.data) {
+      setPrefs({
+        pushNotif: Boolean(settingsQuery.data.push_notif),
+        emailNotif: Boolean(settingsQuery.data.email_notif),
+        inAppNotif: Boolean(settingsQuery.data.in_app_notif),
+        claimUpdates: Boolean(settingsQuery.data.claim_updates),
+        docReminders: Boolean(settingsQuery.data.doc_reminders),
+        marketingEmails: Boolean(settingsQuery.data.marketing_emails),
+        preferredContact: (settingsQuery.data.preferred_contact ?? "email") as "email" | "phone" | "chat",
+      });
+    }
+  }, [settingsQuery.data]);
+
+  const saveProfile = useMutation({
+    mutationFn: () =>
+      api.me.patch({
+        full_name: profile.fullName,
+        phone: profile.phone || undefined,
+      }),
+  });
+
+  const saveSettings = useMutation({
+    mutationFn: () =>
+      api.settings.patch({
+        push_notif: prefs.pushNotif,
+        email_notif: prefs.emailNotif,
+        in_app_notif: prefs.inAppNotif,
+        claim_updates: prefs.claimUpdates,
+        doc_reminders: prefs.docReminders,
+        marketing_emails: prefs.marketingEmails,
+        preferred_contact: prefs.preferredContact,
+        language: lang,
+      }),
+  });
+
+  const handleSave = async () => {
+    try {
+      await Promise.all([saveProfile.mutateAsync(), saveSettings.mutateAsync()]);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch {
+      void 0;
+    }
+  };
   const toggle = (key: keyof typeof prefs) => setPrefs((p) => ({ ...p, [key]: !p[key] }));
 
   return (
@@ -37,10 +98,22 @@ export default function Settings() {
         <Card className="border-border bg-card">
           <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><User className="w-4 h-4 text-primary" /> {t("set.profile")}</CardTitle></CardHeader>
           <CardContent className="space-y-4">
+            {meQuery.isError && (meQuery.error as ApiError)?.status === 401 ? (
+              <p className="text-sm text-muted-foreground">Please sign in to edit settings.</p>
+            ) : null}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2"><Label>{t("set.fullName")}</Label><Input defaultValue={user?.name || "John Doe"} /></div>
-              <div className="space-y-2"><Label>{t("set.email")}</Label><Input defaultValue={user?.email || "john@example.com"} type="email" /></div>
-              <div className="space-y-2"><Label>{t("set.phone")}</Label><Input defaultValue="+84 912 345 678" type="tel" /></div>
+              <div className="space-y-2">
+                <Label>{t("set.fullName")}</Label>
+                <Input value={profile.fullName} onChange={(e) => setProfile((p) => ({ ...p, fullName: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>{t("set.email")}</Label>
+                <Input value={profile.email} type="email" disabled />
+              </div>
+              <div className="space-y-2">
+                <Label>{t("set.phone")}</Label>
+                <Input value={profile.phone} onChange={(e) => setProfile((p) => ({ ...p, phone: e.target.value }))} type="tel" />
+              </div>
               <div className="space-y-2">
                 <Label>{t("set.language")}</Label>
                 <div className="flex items-center gap-2">
@@ -105,7 +178,7 @@ export default function Settings() {
         </Card>
 
         <div className="flex justify-end pt-2">
-          <Button onClick={handleSave} size="lg">
+          <Button onClick={handleSave} size="lg" disabled={saveProfile.isPending || saveSettings.isPending}>
             {saved ? <><CheckCircle2 className="w-4 h-4 mr-1" /> {t("set.saved")}</> : <><Save className="w-4 h-4 mr-1" /> {t("set.saveChanges")}</>}
           </Button>
         </div>

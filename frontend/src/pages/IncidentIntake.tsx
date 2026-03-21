@@ -308,9 +308,9 @@ export default function IncidentIntake() {
           has_injury: Boolean(data.hasInjury),
         },
       });
-      await api.claims.triage(claimId);
+      return api.claims.triage(claimId);
     },
-    onSuccess: () => {
+    onSuccess: (triageResult) => {
       sessionStorage.setItem(
         INCIDENT_DRAFT_KEY,
         JSON.stringify({
@@ -319,11 +319,11 @@ export default function IncidentIntake() {
           data,
         })
       );
-      if (data.hasInjury) {
-        navigate("/chat");
+      if (triageResult.assisted_mode) {
+        navigate("/assisted-mode");
         return;
       }
-      navigate("/assisted-mode");
+      navigate("/chat");
     },
     onError: (err) => {
       toast({

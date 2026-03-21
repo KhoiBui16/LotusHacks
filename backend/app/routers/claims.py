@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import re
 from typing import Annotated
 
 from bson import ObjectId
@@ -6,10 +7,14 @@ from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
+from app.agent.agents.insurance_agents import insurance_agents
+from app.agent.models.schemas import IncidentInput as AgentIncidentInput
+from app.agent.models.schemas import IncidentType as AgentIncidentType
 from app.db import get_db
 from app.models.claim import ClaimInDB, ClaimListItem, ClaimTimelineItem
 from app.models.claim_document import ClaimDocumentInDB
 from app.models.user import UserInDB
+from app.models.vehicle import VehicleInDB
 from app.schemas.claims import (
     AttachDocumentRequest,
     ClaimAppealRequest,
@@ -36,6 +41,18 @@ from app.schemas.me import OkResponse
 from app.security.deps import get_current_user
 
 router = APIRouter(prefix="/claims", tags=["claims"])
+
+_AGENT_INCIDENT_TYPE_MAP = {
+    "collision": AgentIncidentType.COLLISION,
+    "scratch": AgentIncidentType.SCRATCH,
+    "glass": AgentIncidentType.GLASS_BREAK,
+    "flood": AgentIncidentType.FLOOD,
+    "theft": AgentIncidentType.THEFT,
+    "other": AgentIncidentType.OTHER,
+}
+_GPS_COORDINATES_PATTERN = re.compile(r"^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$")
+_HIGHWAY_KEYWORDS = ("cao tốc", "cao toc", "highway", "expressway")
+_MULTI_VEHICLE_PATTERN = re.compile(r"\b(\d+)\s*xe\b", re.IGNORECASE)
 
 
 async def notify_admins_about_claim(
@@ -105,18 +122,150 @@ def required_docs(*, police_report_required: bool) -> list[RequiredDoc]:
     ]
 
 
-def is_complex_case(claim: ClaimInDB) -> tuple[bool, list[str]]:
+def _build_incident_timestamp(date_value: str, time_value: str | None) -> str:
+    """Ghép date + time từ claim hiện tại về format agent đang dùng."""
+    return f"{date_value} {time_value}".strip() if time_value else date_value
+
+
+def _extract_gps_coordinates(location_text: str) -> str | None:
+    """Nếu user đang lưu `lat,lng` ở step location thì chuyển sang GPS field riêng."""
+    return location_text if _GPS_COORDINATES_PATTERN.match(location_text or "") else None
+
+
+def _infer_highway_incident(location_text: str, description: str | None) -> bool:
+    """Suy ra tín hiệu cao tốc từ location/description hiện có của BE."""
+    haystack = f"{location_text} {description or ''}".lower()
+    return any(keyword in haystack for keyword in _HIGHWAY_KEYWORDS)
+
+
+def _infer_number_of_vehicles(description: str | None, has_third_party: bool) -> int:
+    """
+    Suy luận số xe liên quan từ mô tả tự do.
+
+    Main hiện chưa thu riêng field này, nên adapter chỉ lấy từ text nếu có;
+    fallback tối thiểu là 2 xe khi có bên thứ ba, hoặc 1 xe nếu không.
+    """
+    description_text = description or ""
+    match = _MULTI_VEHICLE_PATTERN.search(description_text)
+    if match:
+        try:
+            return max(int(match.group(1)), 1)
+        except ValueError:
+            pass
+
+    lowered = description_text.lower()
+    if "liên hoàn" in lowered:
+        return 3
+    if has_third_party:
+        return 2
+    return 1
+
+
+def _to_agent_incident_type(raw_type: str | None) -> AgentIncidentType:
+    """Map incident type của claim hiện tại sang enum của workflow agent."""
+    return _AGENT_INCIDENT_TYPE_MAP.get(raw_type or "", AgentIncidentType.OTHER)
+
+
+def _claim_has_linked_policy(claim: ClaimInDB, vehicle: VehicleInDB | None) -> bool:
+    """Xác định xem claim hiện có policy linked hay chưa."""
+    return bool(
+        claim.policy_id
+        or claim.insurer
+        or (vehicle and (vehicle.policy_linked or vehicle.policy_id or vehicle.insurer))
+    )
+
+
+async def _load_claim_vehicle(
+    db: AsyncIOMotorDatabase,
+    *,
+    claim: ClaimInDB,
+    user_id: str,
+) -> VehicleInDB | None:
+    """Lấy vehicle linked để agent đọc insurer/policy validity thật từ main."""
+    vehicle_doc = await db["vehicles"].find_one(
+        {"_id": ObjectId(claim.vehicle_id), "user_id": ObjectId(user_id)}
+    )
+    if not vehicle_doc:
+        return None
+    return VehicleInDB.from_mongo(vehicle_doc)
+
+
+def _build_agent_incident_input(
+    *,
+    claim: ClaimInDB,
+    vehicle: VehicleInDB | None,
+) -> AgentIncidentInput:
+    """
+    Chuyển dữ liệu claim/vehicle hiện có của main sang schema input của workflow agent.
+
+    Đây là adapter trung tâm để workflow agent dùng đúng dữ liệu thật từ 7 bước
+    thay cho dummy payload.
+    """
     incident = claim.incident
     if not incident:
-        return False, []
-    reasons: list[str] = []
-    if incident.has_injury:
-        reasons.append("injury")
-    if incident.has_third_party:
-        reasons.append("third_party")
-    if incident.needs_towing:
-        reasons.append("needs_towing")
-    return len(reasons) > 0, reasons
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Incident intake is incomplete")
+
+    location_text = incident.location_text.strip()
+    gps_coordinates = _extract_gps_coordinates(location_text)
+    insurer = claim.insurer or (vehicle.insurer if vehicle else None)
+    policy_id = claim.policy_id or (vehicle.policy_id if vehicle else None)
+    policy_linked = _claim_has_linked_policy(claim, vehicle)
+
+    return AgentIncidentInput(
+        time=_build_incident_timestamp(incident.date, incident.time),
+        location=location_text,
+        gps_coordinates=gps_coordinates,
+        description=incident.description or f"Incident reported as {incident.type}.",
+        incident_type=_to_agent_incident_type(incident.type),
+        third_party_involved=incident.has_third_party,
+        vehicle_drivable=incident.can_drive,
+        injuries=incident.has_injury,
+        policy_id=policy_id,
+        insurer=insurer,
+        policy_active=True if policy_linked else False,
+        policy_start_date=vehicle.effective_date if vehicle else None,
+        policy_end_date=vehicle.expiry if vehicle else None,
+        vehicle_plate=vehicle.plate if vehicle else None,
+        vehicle_model=vehicle.model if vehicle else None,
+        highway_incident=_infer_highway_incident(location_text, incident.description),
+        number_of_vehicles_involved=_infer_number_of_vehicles(incident.description, incident.has_third_party),
+        towing_required=incident.needs_towing,
+        police_report=incident.has_injury or incident.has_third_party,
+        notes=incident.third_party_info,
+    )
+
+
+def _triage_risk_level(agent_incident: AgentIncidentInput, assisted_mode: bool) -> str:
+    """Suy ra risk level theo contract hiện có của main."""
+    if assisted_mode:
+        return "high"
+    if agent_incident.towing_required or agent_incident.incident_type in {
+        AgentIncidentType.FLOOD,
+        AgentIncidentType.THEFT,
+    }:
+        return "medium"
+    return "low"
+
+
+def _build_coverage_check(
+    *,
+    claim: ClaimInDB,
+    vehicle: VehicleInDB | None,
+    is_eligible: bool,
+    coverage_summary: str | None,
+    description: str,
+) -> CoverageCheckResponse:
+    """Map kết quả Agent 2 về shape eligibility hiện tại của main."""
+    has_policy = _claim_has_linked_policy(claim, vehicle)
+    description_lower = description.lower()
+    policy_active = has_policy and not ((not is_eligible) and "hiệu lực" in description_lower)
+    likely_excluded = (not is_eligible) and "hiệu lực" not in description_lower
+    return CoverageCheckResponse(
+        policy_active=policy_active,
+        has_policy=has_policy,
+        likely_excluded=likely_excluded,
+        deductible_notice=coverage_summary,
+    )
 
 
 def required_docs_for_claim(claim: ClaimInDB) -> list[RequiredDoc]:
@@ -144,63 +293,6 @@ async def ensure_required_doc_stubs(db: AsyncIOMotorDatabase, claim: ClaimInDB) 
             },
             upsert=True,
         )
-
-
-def coverage_check(claim: ClaimInDB) -> CoverageCheckResponse:
-    has_policy = bool(claim.policy_id and claim.insurer)
-    policy_active = has_policy
-    likely_excluded = bool(claim.incident and claim.incident.type == "other")
-    deductible_notice = "Standard deductible may apply"
-    return CoverageCheckResponse(
-        policy_active=policy_active,
-        has_policy=has_policy,
-        likely_excluded=likely_excluded,
-        deductible_notice=deductible_notice,
-    )
-
-
-def eligibility_for_claim(claim: ClaimInDB) -> EligibilityResponse:
-    complex_case, _ = is_complex_case(claim)
-    coverage = coverage_check(claim)
-    notes: list[str] = []
-    if not coverage.has_policy:
-        notes.append("No linked policy found")
-        return EligibilityResponse(
-            claim_id=claim.id,
-            outcome="low_value_or_excluded",
-            coverage=coverage,
-            next_action="exit",
-            notes=notes,
-        )
-
-    if coverage.likely_excluded:
-        notes.append("Incident type may be excluded by policy terms")
-        return EligibilityResponse(
-            claim_id=claim.id,
-            outcome="low_value_or_excluded",
-            coverage=coverage,
-            next_action="exit",
-            notes=notes,
-        )
-
-    if complex_case:
-        notes.append("Complex case requires assisted handling")
-        return EligibilityResponse(
-            claim_id=claim.id,
-            outcome="likely_covered",
-            coverage=coverage,
-            next_action="assisted",
-            notes=notes,
-        )
-
-    notes.append("Likely covered based on initial intake")
-    return EligibilityResponse(
-        claim_id=claim.id,
-        outcome="likely_covered",
-        coverage=coverage,
-        next_action="chat",
-        notes=notes,
-    )
 
 
 @router.get("", response_model=list[ClaimListItem])
@@ -620,11 +712,22 @@ async def triage_claim(
     doc = await db["claims"].find_one({"_id": ObjectId(claim_id), "user_id": ObjectId(user.id)})
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
+
     claim = ClaimInDB.from_mongo(doc)
-    assisted, reasons = is_complex_case(claim)
-    risk_level = "high" if assisted else "low"
-    if claim.incident and not assisted and claim.incident.type in {"flood", "theft"}:
-        risk_level = "medium"
+    vehicle = await _load_claim_vehicle(db, claim=claim, user_id=user.id)
+    agent_incident = _build_agent_incident_input(claim=claim, vehicle=vehicle)
+
+    try:
+        triage_result = insurance_agents.run_triage_agent(agent_incident)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Workflow triage failed: {exc}",
+        )
+
+    assisted = triage_result.is_complex
+    reasons = triage_result.triggered_rules or [triage_result.description]
+    risk_level = _triage_risk_level(agent_incident, assisted)
 
     now = datetime.now(timezone.utc)
     await db["claims"].update_one(
@@ -635,6 +738,9 @@ async def triage_claim(
                     "risk_level": risk_level,
                     "assisted_mode": assisted,
                     "reasons": reasons,
+                    "description": triage_result.description,
+                    "citations": [citation.model_dump() for citation in triage_result.citations],
+                    "source": "agent_workflow",
                     "at": now,
                 },
                 "updated_at": now,
@@ -654,11 +760,69 @@ async def get_eligibility(
     doc = await db["claims"].find_one({"_id": ObjectId(claim_id), "user_id": ObjectId(user.id)})
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
+
     claim = ClaimInDB.from_mongo(doc)
-    result = eligibility_for_claim(claim)
+    vehicle = await _load_claim_vehicle(db, claim=claim, user_id=user.id)
+    agent_incident = _build_agent_incident_input(claim=claim, vehicle=vehicle)
+
+    triage_doc = doc.get("triage") or {}
+    assisted_mode = triage_doc.get("assisted_mode")
+    if assisted_mode is None:
+        try:
+            triage_result = insurance_agents.run_triage_agent(agent_incident)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Workflow triage failed: {exc}",
+            )
+        assisted_mode = triage_result.is_complex
+
+    if assisted_mode:
+        result = EligibilityResponse(
+            claim_id=claim_id,
+            outcome="likely_covered",
+            coverage=_build_coverage_check(
+                claim=claim,
+                vehicle=vehicle,
+                is_eligible=True,
+                coverage_summary="Coverage pre-check is deferred to Assisted Mode.",
+                description="Complex case requires assisted handling before coverage pre-check.",
+            ),
+            next_action="assisted",
+            notes=["Complex case requires assisted handling before coverage pre-check."],
+        )
+    else:
+        try:
+            coverage_result = insurance_agents.run_coverage_agent(agent_incident)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Workflow eligibility failed: {exc}",
+            )
+
+        coverage = _build_coverage_check(
+            claim=claim,
+            vehicle=vehicle,
+            is_eligible=coverage_result.is_eligible,
+            coverage_summary=coverage_result.coverage_summary,
+            description=coverage_result.description,
+        )
+        result = EligibilityResponse(
+            claim_id=claim_id,
+            outcome="likely_covered" if coverage_result.is_eligible else "low_value_or_excluded",
+            coverage=coverage,
+            next_action="chat" if coverage_result.is_eligible else "exit",
+            notes=[coverage_result.description],
+        )
+
     await db["claims"].update_one(
         {"_id": ObjectId(claim_id), "user_id": ObjectId(user.id)},
-        {"$set": {"eligibility": result.model_dump(), "updated_at": datetime.now(timezone.utc)}},
+        {
+            "$set": {
+                "eligibility": result.model_dump(),
+                "updated_at": datetime.now(timezone.utc),
+            }
+        },
     )
     return result
 

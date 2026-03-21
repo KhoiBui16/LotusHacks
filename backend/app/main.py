@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import close_db, init_db
+from app.agent.routers.workflow import router as agent_workflow_router
 from app.routers.auth import router as auth_router
 from app.routers.admin import router as admin_router
 from app.routers.claims import router as claims_router
@@ -31,6 +32,7 @@ app.include_router(admin_router)
 app.include_router(me_router)
 app.include_router(vehicles_router)
 app.include_router(claims_router)
+app.include_router(agent_workflow_router, prefix="/api/v1/agent")
 app.include_router(uploads_router)
 app.include_router(notifications_router)
 app.include_router(chat_router)

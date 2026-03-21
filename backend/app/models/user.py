@@ -8,6 +8,8 @@ class UserInDB(BaseModel):
     id: str = Field(alias="_id")
     email: EmailStr
     full_name: str
+    phone: str | None = None
+    avatar_url: str | None = None
     password_hash: str | None = None
     google_sub: str | None = None
     created_at: datetime
@@ -24,5 +26,6 @@ class UserPublic(BaseModel):
     id: str
     email: EmailStr
     full_name: str
+    phone: str | None = None
+    avatar_url: str | None = None
     created_at: datetime
-

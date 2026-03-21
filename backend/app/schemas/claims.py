@@ -92,10 +92,14 @@ class CoverageCheckResponse(BaseModel):
 
 class EligibilityResponse(BaseModel):
     claim_id: str
-    outcome: Literal["likely_covered", "low_value_or_excluded"]
+    outcome: Literal["assisted_required", "likely_covered", "low_value_or_excluded"]
     coverage: CoverageCheckResponse
     next_action: Literal["assisted", "chat", "review", "exit"]
     notes: list[str] = []
+    advice_text: str | None = None
+    recommended_actions: list[str] = []
+    save_draft_available: bool = False
+    end_flow_available: bool = False
 
 
 class FirstNoticeRequest(BaseModel):
@@ -137,4 +141,21 @@ class ClaimAppealRequest(BaseModel):
 class ClaimAppealResponse(BaseModel):
     claim_id: str
     appealed: bool
+    message: str
+
+
+class ClaimChatBootstrapResponse(BaseModel):
+    claim_id: str
+    session_id: str
+    title: str
+    reused: bool = False
+
+
+class ClaimAdviceActionRequest(BaseModel):
+    action: Literal["save_draft", "end_flow"]
+
+
+class ClaimAdviceActionResponse(BaseModel):
+    claim_id: str
+    status: ClaimStatus
     message: str

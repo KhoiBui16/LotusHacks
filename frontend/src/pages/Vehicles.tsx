@@ -299,40 +299,57 @@ export default function Vehicles() {
         </div>
 
         {showAddVehicle && (
-          <Card className="border-primary/30 bg-primary/5">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">{t("vh.addVehicle")}</CardTitle>
+          <Card className="border-primary/30 bg-gradient-to-br from-primary/10 via-primary/5 to-background">
+            <CardHeader className="pb-2 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Car className="w-4 h-4 text-primary" /> {t("vh.addVehicle")}
+                </CardTitle>
+                <Badge variant="outline" className="border-primary/40 text-primary bg-primary/10">Quick setup</Badge>
+              </div>
+              <p className="text-sm text-muted-foreground">Fill basic vehicle details first. You can complete policy and owner information afterward.</p>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <Label>{t("vd.noPlateYet")}</Label>
-                  <Switch
-                    checked={newVehicle.noPlateYet}
-                    onCheckedChange={(v) => setNewVehicle((prev) => ({ ...prev, noPlateYet: Boolean(v), plate: Boolean(v) ? "" : prev.plate }))}
-                  />
+              <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 flex items-center justify-between gap-4">
+                <div>
+                  <Label className="text-sm font-medium">{t("vd.noPlateYet")}</Label>
+                  <p className="text-xs text-muted-foreground mt-1">Turn this on if your vehicle is new and has no plate assigned yet.</p>
                 </div>
+                <Switch
+                  checked={newVehicle.noPlateYet}
+                  onCheckedChange={(v) => setNewVehicle((prev) => ({ ...prev, noPlateYet: Boolean(v), plate: Boolean(v) ? "" : prev.plate }))}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {!newVehicle.noPlateYet && (
                   <div className="space-y-2">
                     <Label>{t("vd.plateNumber")}</Label>
-                    <Input value={newVehicle.plate} onChange={(e) => setNewVehicle((prev) => ({ ...prev, plate: e.target.value }))} placeholder="51A-123.45" />
+                    <Input value={newVehicle.plate} onChange={(e) => setNewVehicle((prev) => ({ ...prev, plate: e.target.value }))} placeholder="51A-123.45" className="bg-card/80" />
                   </div>
                 )}
                 <div className="space-y-2">
                   <Label>{t("vh.model")}</Label>
-                  <Input value={newVehicle.model} onChange={(e) => setNewVehicle((prev) => ({ ...prev, model: e.target.value }))} placeholder="Toyota Camry" />
+                  <Input value={newVehicle.model} onChange={(e) => setNewVehicle((prev) => ({ ...prev, model: e.target.value }))} placeholder="Toyota Camry" className="bg-card/80" />
                 </div>
                 <div className="space-y-2">
                   <Label>{t("vh.year")}</Label>
-                  <Input type="number" min={1900} max={2100} value={newVehicle.year} onChange={(e) => setNewVehicle((prev) => ({ ...prev, year: e.target.value }))} />
+                  <Input type="number" min={1900} max={2100} value={newVehicle.year} onChange={(e) => setNewVehicle((prev) => ({ ...prev, year: e.target.value }))} className="bg-card/80" />
                 </div>
                 <div className="space-y-2">
                   <Label>{t("vh.color")}</Label>
-                  <Input value={newVehicle.color} onChange={(e) => setNewVehicle((prev) => ({ ...prev, color: e.target.value }))} placeholder="Black" />
+                  <Input value={newVehicle.color} onChange={(e) => setNewVehicle((prev) => ({ ...prev, color: e.target.value }))} placeholder="Black" className="bg-card/80" />
                 </div>
                 <div className="space-y-2">
                   <Label>{t("vd.vehicleType")}</Label>
-                  <Input value={newVehicle.vehicleType} onChange={(e) => setNewVehicle((prev) => ({ ...prev, vehicleType: e.target.value }))} placeholder="Sedan" />
+                  <Input value={newVehicle.vehicleType} onChange={(e) => setNewVehicle((prev) => ({ ...prev, vehicleType: e.target.value }))} placeholder="Sedan" className="bg-card/80" />
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {["Sedan", "SUV", "Hatchback", "Pickup", "Motorbike"].map((vType) => (
+                      <Button key={vType} type="button" size="sm" variant={newVehicle.vehicleType === vType ? "default" : "outline"} onClick={() => setNewVehicle((prev) => ({ ...prev, vehicleType: vType }))}>
+                        {vType}
+                      </Button>
+                    ))}
+                  </div>
                 </div>
               </div>
               <div className="flex justify-end gap-2">

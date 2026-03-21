@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useToast } from "@/hooks/use-toast";
 import Navbar from "@/components/landing/Navbar";
@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { TranslationKey } from "@/i18n/translations";
 import { api } from "@/lib/api";
+import type { Claim } from "@/lib/api";
 
 function normalizeId(raw: string | null): string {
   const v = (raw ?? "").trim();
@@ -27,6 +28,34 @@ function claimIdOf(claim: unknown): string {
   const raw = anyClaim?.id || anyClaim?._id || "";
   return normalizeId(raw);
 }
+
+const INCIDENT_DRAFT_KEY = "incident_intake_draft";
+
+type IncidentIntakeData = {
+  type: string;
+  date: string;
+  time: string;
+  location: string;
+  description: string;
+  hasThirdParty: boolean | null;
+  thirdPartyInfo: string;
+  canDrive: boolean | null;
+  needsTowing: boolean | null;
+  hasInjury: boolean | null;
+};
+
+const initialIncidentData: IncidentIntakeData = {
+  type: "",
+  date: "",
+  time: "",
+  location: "",
+  description: "",
+  hasThirdParty: null,
+  thirdPartyInfo: "",
+  canDrive: null,
+  needsTowing: null,
+  hasInjury: null,
+};
 
 export default function IncidentIntake() {
   const navigate = useNavigate();
@@ -53,6 +82,8 @@ export default function IncidentIntake() {
   ];
 
   const [step, setStep] = useState(0);
+  const activeClaimId = normalizeId(sessionStorage.getItem("activeClaimId"));
+  const restoredRef = useRef(false);
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const markerRef = useRef<any>(null);
@@ -63,12 +94,68 @@ export default function IncidentIntake() {
     const v = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
     return v && v.trim() ? v.trim() : "";
   }, []);
-  const [data, setData] = useState({
-    type: "", date: "", time: "", location: "", description: "",
-    hasThirdParty: null as boolean | null, thirdPartyInfo: "",
-    canDrive: null as boolean | null, needsTowing: null as boolean | null,
-    hasInjury: null as boolean | null,
+  const [data, setData] = useState<IncidentIntakeData>(initialIncidentData);
+
+  const claimQuery = useQuery<Claim>({
+    queryKey: ["claim", activeClaimId, "incident-intake"],
+    queryFn: () => api.claims.get(activeClaimId),
+    enabled: Boolean(activeClaimId),
   });
+
+  useEffect(() => {
+    if (restoredRef.current) return;
+    const raw = sessionStorage.getItem(INCIDENT_DRAFT_KEY);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as {
+        claimId?: string;
+        step?: number;
+        data?: Partial<IncidentIntakeData>;
+      };
+      const draftClaimId = normalizeId(parsed.claimId ?? "");
+      if (activeClaimId && draftClaimId && activeClaimId !== draftClaimId) return;
+      if (parsed.data) {
+        setData((prev) => ({ ...prev, ...parsed.data }));
+      }
+      if (typeof parsed.step === "number" && parsed.step >= 0 && parsed.step <= 6) {
+        setStep(parsed.step);
+      }
+      restoredRef.current = true;
+    } catch {
+      void 0;
+    }
+  }, [activeClaimId]);
+
+  useEffect(() => {
+    if (!activeClaimId || restoredRef.current) return;
+    const incident = claimQuery.data?.incident;
+    if (!incident) return;
+    setData({
+      type: incident.type,
+      date: incident.date,
+      time: incident.time || "",
+      location: incident.location_text,
+      description: incident.description || "",
+      hasThirdParty: incident.has_third_party,
+      thirdPartyInfo: incident.third_party_info || "",
+      canDrive: incident.can_drive,
+      needsTowing: incident.needs_towing,
+      hasInjury: incident.has_injury,
+    });
+    setStep(6);
+    restoredRef.current = true;
+  }, [activeClaimId, claimQuery.data?.incident]);
+
+  useEffect(() => {
+    sessionStorage.setItem(
+      INCIDENT_DRAFT_KEY,
+      JSON.stringify({
+        claimId: activeClaimId || null,
+        step,
+        data,
+      })
+    );
+  }, [activeClaimId, data, step]);
 
   const useCurrentLocation = () => {
     if (!navigator.geolocation) return;
@@ -224,6 +311,14 @@ export default function IncidentIntake() {
       await api.claims.triage(claimId);
     },
     onSuccess: () => {
+      sessionStorage.setItem(
+        INCIDENT_DRAFT_KEY,
+        JSON.stringify({
+          claimId: activeClaimId || sessionStorage.getItem("activeClaimId") || null,
+          step: 6,
+          data,
+        })
+      );
       if (data.hasInjury) {
         navigate("/chat");
         return;

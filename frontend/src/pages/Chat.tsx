@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useToast } from "@/hooks/use-toast";
@@ -14,6 +15,7 @@ import { ApiError } from "@/lib/apiClient";
 import type { ChatSessionListItem, ChatSession } from "@/lib/api";
 
 export default function Chat() {
+  const navigate = useNavigate();
   const { t } = useLanguage();
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -113,6 +115,9 @@ export default function Chat() {
         {/* Sidebar */}
         <div className="w-64 border-r border-border bg-card flex flex-col">
           <div className="p-4 border-b border-border">
+            <Button variant="outline" className="w-full mb-2" onClick={() => navigate("/incident-intake")}> 
+              <ChevronLeft className="w-4 h-4 mr-1" /> Back to incident
+            </Button>
             <Button
               className="w-full gap-2"
               onClick={() => createSessionMutation.mutate()}

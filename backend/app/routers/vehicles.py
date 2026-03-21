@@ -187,9 +187,23 @@ async def delete_vehicle(
 ) -> OkResponse:
     _assert_vehicle_access_allowed(user)
     vehicle_oid = _to_object_id(vehicle_id, "vehicle")
-    res = await db["vehicles"].delete_one({"_id": vehicle_oid, "user_id": ObjectId(user.id)})
+    user_oid = ObjectId(user.id)
+
+    claims_cursor = db["claims"].find(
+        {"user_id": user_oid, "vehicle_id": vehicle_oid},
+        {"_id": 1},
+    )
+    claim_ids: list[ObjectId] = [doc["_id"] async for doc in claims_cursor]
+
+    res = await db["vehicles"].delete_one({"_id": vehicle_oid, "user_id": user_oid})
     if res.deleted_count == 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+
+    if claim_ids:
+                await db["claims"].delete_many({"_id": {"$in": claim_ids}, "user_id": user_oid})
+                await db["claim_documents"].delete_many({"claim_id": {"$in": claim_ids}})
+                await db["notifications"].delete_many({"user_id": user_oid, "claim_id": {"$in": claim_ids}})
+
     return OkResponse()
 
 

@@ -1,171 +1,164 @@
 # LotusHacks
 
-Repo này đang được tích hợp theo hướng:
+LotusHacks is a hackathon project focused on AI-assisted vehicle insurance claim intake for the Vietnam market.  
+The product helps users report incidents, route claims intelligently, and prepare insurer-specific claim documents.
 
-- FE `Start Claim` và `Incident Intake` lấy dữ liệu thật từ `main`
-- workflow agent dùng dữ liệu 7 bước hiện có để quyết định `assisted_mode = yes/no`
-- downstream hiện tại của `main` được giữ nguyên:
-  - `assisted_mode = true` -> `/assisted-mode`
-  - `assisted_mode = false` -> `/chat`
+## Hackathon Goal
 
-Phase hiện tại chưa mở rộng sang OCR/import policy tự động, dossier builder, submission router hay claim tracking đầy đủ.
+Build an end-to-end claim assistant that can:
 
-## Kiến trúc hiện tại
+- Collect incident details in a guided, user-friendly flow
+- Use AI triage to decide the next experience (chatbot or assisted mode)
+- Provide document checklist support grounded on insurer policy context
+- Keep the flow practical for demo-day while preserving production-minded architecture
 
-### FE
+## Key Features
 
-- `frontend/src/pages/StartClaim.tsx`
-  - lấy vehicle/policy thật
-  - tạo draft claim
-  - chuyển vào `IncidentIntake`
-- `frontend/src/pages/IncidentIntake.tsx`
-  - thu 7 bước input
-  - patch incident vào claim hiện tại
-  - gọi `POST /claims/{claim_id}/triage`
-  - route theo decision thật từ workflow agent
+- 7-step incident intake flow
+- AI triage and eligibility checks
+- Assisted mode for complex cases
+- Chat-based support for eligible/simple cases
+- AI-generated checklist guidance and document upload flow
+- Claim validation, review, and submission stages
+- Admin dashboard for claim operations
 
-### BE
+## Tech Stack
 
-- `backend/app/routers/claims.py`
-  - nhận dữ liệu claim hiện có của `main`
-  - map sang `AgentIncidentInput`
-  - gọi Agent 1 để trả decision `assisted_mode`
-  - giữ nguyên contract response hiện có của `main`
-- `backend/app/agent/routers/workflow.py`
-  - router workflow 2 agent đầy đủ
-  - mount tại `/api/v1/agent/workflow`
-- `backend/app/agent/rag`
-  - index/retrieve policy context trên Zilliz
+- Frontend: React + TypeScript + Vite + TanStack Query + Tailwind
+- Backend: FastAPI + Motor (MongoDB) + Pydantic
+- AI/LLM: OpenAI API
+- RAG/Vector DB: Zilliz (Milvus)
+- Testing: Pytest (backend), Vitest (frontend)
 
-## Workflow phase này
+## Repository Structure
 
-### Agent 1
+- frontend: React web app and user/admin pages
+- backend: FastAPI APIs, agent logic, claim workflows, tests
+- backend/app/agent: triage + coverage + checklist + RAG integration
+- database: local Mongo init assets
+- docs: pitch and AI service notes
+- shared: shared project types/assets
 
-Input lấy từ 7 bước hiện có:
+## High-Level Flow
 
-- `incident type`
-- `date`
-- `time`
-- `location_text`
-- `description`
-- `has_third_party`
-- `can_drive`
-- `needs_towing`
-- `has_injury`
+1. User creates or resumes a draft claim.
+2. User completes 7-step incident intake.
+3. Backend triage agent evaluates case complexity.
+4. Routing:
+   - Complex case -> Assisted Mode
+   - Non-complex case -> Eligibility pre-check
+5. If eligible, user can continue with chat/checklist + document upload.
 
-Input được làm giàu thêm từ vehicle/claim linked:
+## Environment Setup
 
-- `insurer`
-- `policy_id`
-- `effective_date`
-- `expiry`
-- `plate`
-- `model`
+### 1. Create environment file
 
-Output:
+At repository root:
 
-- `assisted_mode = true` nếu case được phân loại phức tạp
-- `assisted_mode = false` nếu case có thể đi tiếp flow thường
-
-### Agent 2
-
-Đã có trong BE để dùng cho coverage pre-check phase sau:
-
-- policy validity
-- insurer-specific retrieval
-- exclusion / deductible / eligibility pre-check
-
-FE hiện tại của `main` chưa buộc phải dùng Agent 2 để đổi route, nên downstream chưa bị đụng.
-
-## RAG
-
-Nguyên tắc đang dùng:
-
-- Zilliz là vector backend
-- notebook chỉ dùng để tham khảo cách connect/query Zilliz
-- không dùng keyword taxonomy kiểu `CATEGORY_KEYWORDS` để gán chunk nghiệp vụ
-- chunk policy chỉ giữ metadata trung tính:
-  - `source`
-  - `insurer`
-  - `article`
-  - `chunk_index`
-
-Tài liệu policy mẫu hiện nằm ở:
-
-- `backend/app/agent/data/policy_baoviet.txt`
-- `backend/app/agent/data/policy_mic.txt`
-- `backend/app/agent/data/policy_pti.txt`
-
-## Local setup
-
-### 1. Backend env
-
-Sao chép:
-
-```powershell
-Copy-Item backend\.env.example backend\.env
+```bash
+cp .env.example .env
 ```
 
-Các biến tối thiểu cần có:
+Important variables to set:
 
-- `OPENAI_API_KEY`
-- `HF_TOKEN`
-- `ZILLIZ_URI`
-- `ZILLIZ_TOKEN`
+- OPENAI_API_KEY
+- ZILLIZ_URI
+- ZILLIZ_TOKEN
+- MONGODB_URI
+- MONGODB_DB_NAME
+- JWT_SECRET
 
-Bạn cũng có thể cấu hình Zilliz qua:
+## Backend Setup
 
-- `MILVUS_HOST`
-- `MILVUS_PORT`
+The team preference for this repo is using conda instead of a .venv.
 
-### 2. Backend install
-
-```powershell
-cd backend
-python -m venv venv
-.\venv\Scripts\Activate.ps1
+```bash
+conda create -n lotushacks-api python=3.11 -y
+conda activate lotushacks-api
 pip install -r requirements.txt
 ```
 
-### 3. Index policy lên Zilliz
+Run backend:
 
-```powershell
+```bash
 cd backend
-.\venv\Scripts\python.exe -m app.agent.rag.index_policies
+uvicorn app.main:app --reload --port 8000
 ```
 
-### 4. Chạy backend
+Health check:
 
-```powershell
-cd backend
-.\venv\Scripts\uvicorn.exe app.main:app --reload --port 8000
-```
+- GET http://localhost:8000/health
 
-### 5. Chạy frontend
+## Frontend Setup
 
-```powershell
+```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-## Test
+Default local URL:
 
-Backend:
+- http://localhost:5173
 
-```powershell
+## Optional: Index Policy Data to Zilliz
+
+```bash
 cd backend
-.\venv\Scripts\python.exe -m pytest tests/test_agent -q
+python -m app.agent.rag.index_policies
 ```
 
-Frontend smoke check:
+## Test Commands
 
-```powershell
+Backend tests:
+
+```bash
+cd backend
+pytest -q
+```
+
+Backend agent-focused tests:
+
+```bash
+cd backend
+pytest tests/test_agent -q
+```
+
+Frontend tests/build:
+
+```bash
 cd frontend
+npm run test
 npm run build
 ```
 
-## Tài liệu thêm
+## API Surface (Core)
 
-- `AI_SERVICES.md`
-- `docs/AI_SERVICES.md`
+- Auth: sign-in/sign-up/google
+- Claims: create, patch, triage, eligibility, documents, validation, submit
+- Chat: session management, message processing, AI response
+- Uploads: claim document upload endpoints
+- Admin: claim status management and oversight
+
+## Notes For Judges and Mentors
+
+- This repository is actively iterated during LotusHacks.
+- Some modules are demo-optimized while preserving scalable architecture boundaries.
+- AI routing and checklist generation are designed to be explainable and policy-grounded.
+
+## Team Members
+
+The project is built by Team LotusHacks:
+
+| Member | Role |
+| --- | --- |
+| Đinh Việt Phát | Project Manager & AI Developer |
+| Nguyễn Võ Ngọc Bảo | Fullstack Developer |
+| Bùi Nhật Anh Khôi | AI/ML Developer |
+| Phan Quốc Đại Sơn | AI/ML Developer |
+
+## Related Docs
+
+- AI_SERVICES.md
+- docs/AI_SERVICES.md
+- docs/PITCH.md

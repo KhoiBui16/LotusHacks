@@ -1,11 +1,43 @@
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 import re
-from typing import Dict
+from typing import Any, Dict
 
-import fitz  # PyMuPDF
-from docx import Document
+def _load_pdf_engine() -> Any:
+    """Load PyMuPDF safely without hard-failing module import time."""
+    try:
+        pymupdf = importlib.import_module("pymupdf")
+        if hasattr(pymupdf, "open"):
+            return pymupdf
+    except Exception:
+        pass
+
+    try:
+        fitz = importlib.import_module("fitz")
+        if hasattr(fitz, "open"):
+            return fitz
+    except Exception:
+        pass
+
+    raise RuntimeError(
+        "PDF parsing requires PyMuPDF. Install with: pip uninstall -y fitz && pip install PyMuPDF"
+    )
+
+
+def _load_docx_engine() -> Any:
+    """Load python-docx lazily to avoid module import failure when DOCX is unused."""
+    try:
+        docx_module = importlib.import_module("docx")
+        document_cls = getattr(docx_module, "Document", None)
+        if document_cls is None:
+            raise RuntimeError("python-docx is installed but Document class is unavailable")
+        return document_cls
+    except Exception as exc:
+        raise RuntimeError(
+            "DOCX parsing requires python-docx. Install with: pip install python-docx"
+        ) from exc
 
 
 class FileReader:
@@ -37,6 +69,7 @@ class FileReader:
         return path.read_text(encoding="utf-8")
 
     def _read_docx(self, path: Path) -> str:
+        Document = _load_docx_engine()
         doc = Document(str(path))
         parts = []
 
@@ -57,6 +90,7 @@ class FileReader:
 
     def _read_pdf(self, path: Path) -> str:
         texts = []
+        fitz = _load_pdf_engine()
         pdf = fitz.open(str(path))
         try:
             for page in pdf:

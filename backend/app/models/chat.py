@@ -45,6 +45,7 @@ class ChatResponse(BaseModel):
     role: str
     content: str
     created_at: str
+    source_tool: Optional[str] = None
 
 
 class ChatSessionListItem(BaseModel):

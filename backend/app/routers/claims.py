@@ -1,6 +1,10 @@
 from datetime import datetime, timezone
+import logging
+import os
 import re
+import tempfile
 from typing import Annotated
+from urllib.parse import unquote, urlparse
 
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -16,6 +20,7 @@ from app.models.claim_document import ClaimDocumentInDB
 from app.models.user import UserInDB
 from app.models.vehicle import VehicleInDB
 from app.schemas.claims import (
+    AIPipelineAssessment,
     AttachDocumentRequest,
     ClaimAppealRequest,
     ClaimAppealResponse,
@@ -41,6 +46,7 @@ from app.schemas.me import OkResponse
 from app.security.deps import get_current_user
 
 router = APIRouter(prefix="/claims", tags=["claims"])
+logger = logging.getLogger(__name__)
 
 _AGENT_INCIDENT_TYPE_MAP = {
     "collision": AgentIncidentType.COLLISION,
@@ -93,31 +99,49 @@ def required_docs(*, police_report_required: bool) -> list[RequiredDoc]:
             title="Vehicle overall",
             mime_allowed=["image/jpeg", "image/png"],
             max_size_mb=20,
+            required=False,
         ),
         RequiredDoc(
             doc_type="damage-closeup",
             title="Damage close-up",
             mime_allowed=["image/jpeg", "image/png"],
             max_size_mb=20,
+            required=False,
         ),
         RequiredDoc(
             doc_type="scene",
             title="Scene photo",
             mime_allowed=["image/jpeg", "image/png"],
             max_size_mb=20,
+            required=False,
         ),
         RequiredDoc(
             doc_type="insurance-cert",
             title="Insurance certificate",
+            mime_allowed=["application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+            max_size_mb=20,
+            required=False,
+        ),
+        RequiredDoc(
+            doc_type="registration",
+            title="Vehicle Registration",
             mime_allowed=["image/jpeg", "image/png", "application/pdf"],
             max_size_mb=20,
+            required=False,
+        ),
+        RequiredDoc(
+            doc_type="driver-license",
+            title="Driver's License",
+            mime_allowed=["image/jpeg", "image/png"],
+            max_size_mb=20,
+            required=False,
         ),
         RequiredDoc(
             doc_type="police-report",
             title="Police report",
             mime_allowed=["image/jpeg", "image/png", "application/pdf"],
             max_size_mb=20,
-            required=police_report_required,
+            required=False,
         ),
     ]
 
@@ -275,6 +299,80 @@ def required_docs_for_claim(claim: ClaimInDB) -> list[RequiredDoc]:
     return required_docs(police_report_required=police_required)
 
 
+_PIPELINE_TEXT_EXTENSIONS = {".txt", ".pdf", ".docx"}
+_PIPELINE_SCORE_THRESHOLD = 0.5
+
+
+def _uploaded_url_to_local_path(url: str | None) -> str | None:
+    if not url:
+        return None
+    parsed = urlparse(url)
+    if parsed.scheme == "file":
+        return unquote(parsed.path)
+    return None
+
+
+def _first_path_by_doc_type(
+    docs_map: dict[str, ClaimDocumentInDB],
+    preferred_doc_types: list[str],
+    *,
+    supported_exts: set[str] | None = None,
+) -> tuple[str | None, str | None]:
+    for doc_type in preferred_doc_types:
+        doc = docs_map.get(doc_type)
+        if not doc or not doc.upload_id:
+            continue
+        local_path = _uploaded_url_to_local_path(doc.url)
+        if not local_path:
+            continue
+        if not os.path.exists(local_path):
+            continue
+        if supported_exts is not None:
+            suffix = os.path.splitext(local_path)[1].lower()
+            if suffix not in supported_exts:
+                continue
+        return local_path, doc_type
+    return None, None
+
+
+def _build_fallback_claim_text(claim: ClaimInDB, vehicle: VehicleInDB | None) -> str:
+    incident = claim.incident
+    if not incident:
+        return ""
+
+    claimant_name = getattr(vehicle, "buyer_name", None) if vehicle else None
+    vehicle_label = getattr(vehicle, "vehicle_type", None) if vehicle else None
+    vehicle_type_text = "Ô tô" if vehicle_label != "motorbike" else "Xe máy"
+    insurer = claim.insurer or (vehicle.insurer if vehicle else None) or "N/A"
+    policy_id = claim.policy_id or (vehicle.policy_id if vehicle else None) or "N/A"
+    plate = (vehicle.plate if vehicle else None) or "N/A"
+
+    return "\n".join(
+        [
+            f"Công ty bảo hiểm | {insurer}",
+            f"Số hợp đồng | {policy_id}",
+            f"Chủ xe được bảo hiểm | {claimant_name or 'N/A'}",
+            f"Biển số xe | {plate}",
+            "Hiệu lực bảo hiểm | Từ 01/01/2025 đến 01/01/2027",
+            f"Loại sự kiện: {incident.type}",
+            f"Thời gian xảy ra tai nạn: {incident.date} {incident.time or ''}".strip(),
+            f"Địa điểm: {incident.location_text}",
+            f"Diễn biến: {incident.description or 'Tai nạn giao thông'}",
+            f"Loại xe: {vehicle_type_text}",
+        ]
+    )
+
+
+def _extract_ai_pipeline_assessment(output: dict) -> AIPipelineAssessment:
+    verification = output.get("verification") or {}
+    return AIPipelineAssessment(
+        decision=str(verification.get("decision") or "unknown"),
+        score=float(verification.get("score") or 0.0),
+        reasons=[str(x) for x in (verification.get("reasons") or [])],
+        flags=[str(x) for x in (verification.get("flags") or [])],
+    )
+
+
 async def ensure_required_doc_stubs(db: AsyncIOMotorDatabase, claim: ClaimInDB) -> None:
     now = datetime.now(timezone.utc)
     for d in required_docs_for_claim(claim):
@@ -282,14 +380,13 @@ async def ensure_required_doc_stubs(db: AsyncIOMotorDatabase, claim: ClaimInDB) 
             {"claim_id": ObjectId(claim.id), "doc_type": d.doc_type},
             {
                 "$setOnInsert": {
-                    "required": d.required,
                     "status": "missing",
                     "note": None,
                     "upload_id": None,
                     "url": None,
                     "created_at": now,
                 },
-                "$set": {"updated_at": now},
+                "$set": {"required": d.required, "updated_at": now},
             },
             upsert=True,
         )
@@ -573,7 +670,7 @@ async def attach_document(
                 "status": "uploaded",
                 "updated_at": now,
             },
-            "$setOnInsert": {"required": True, "created_at": now, "note": None},
+            "$setOnInsert": {"required": False, "created_at": now, "note": None},
         },
         upsert=True,
     )
@@ -591,6 +688,33 @@ async def attach_document(
         upload_id=d.upload_id,
         url=d.url,
     )
+
+
+@router.post("/{claim_id}/documents/reset", response_model=OkResponse)
+async def reset_claim_documents(
+    claim_id: str,
+    user: Annotated[UserInDB, Depends(get_current_user)],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+) -> OkResponse:
+    claim = await db["claims"].find_one({"_id": ObjectId(claim_id), "user_id": ObjectId(user.id)}, {"_id": 1})
+    if not claim:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
+
+    now = datetime.now(timezone.utc)
+    await db["claim_documents"].update_many(
+        {"claim_id": ObjectId(claim_id)},
+        {
+            "$set": {
+                "upload_id": None,
+                "url": None,
+                "status": "missing",
+                "note": "Re-upload required",
+                "updated_at": now,
+            }
+        },
+    )
+
+    return OkResponse()
 
 
 @router.post("/{claim_id}/validate", response_model=ValidationResponse)
@@ -615,16 +739,28 @@ async def validate_claim_documents(
 
     now = datetime.now(timezone.utc)
     results: list[ValidationResultItem] = []
-    overall = "ok"
+    
+    # Count uploaded documents (any type)
+    uploaded_count = 0
+    for doc in docs_map.values():
+        if doc.upload_id:
+            uploaded_count += 1
+
+    uploaded_doc_types = [d.doc_type for d in docs_map.values() if d.upload_id]
+    
+    # Require at least 3 documents to be uploaded
+    overall = "ok" if uploaded_count >= 3 else "issues"
+    logger.info(
+        "Claim %s validate start: uploaded_count=%s uploaded_doc_types=%s overall=%s",
+        claim_id,
+        uploaded_count,
+        uploaded_doc_types,
+        overall,
+    )
+    
+    # Mark all documents with status based on whether they're uploaded
     for req in required_docs_for_claim(claim_obj):
         d = docs_map.get(req.doc_type)
-        if not req.required:
-            results.append(ValidationResultItem(doc_type=req.doc_type, status="valid", note="Optional"))
-            await db["claim_documents"].update_one(
-                {"claim_id": ObjectId(claim_id), "doc_type": req.doc_type},
-                {"$set": {"status": "valid", "note": "Optional", "updated_at": now}},
-            )
-            continue
         if d and d.upload_id:
             results.append(ValidationResultItem(doc_type=req.doc_type, status="valid", note="OK"))
             await db["claim_documents"].update_one(
@@ -632,18 +768,114 @@ async def validate_claim_documents(
                 {"$set": {"status": "valid", "note": "OK", "updated_at": now}},
             )
         else:
-            overall = "issues"
             results.append(ValidationResultItem(doc_type=req.doc_type, status="missing", note="Missing"))
             await db["claim_documents"].update_one(
                 {"claim_id": ObjectId(claim_id), "doc_type": req.doc_type},
                 {"$set": {"status": "missing", "note": "Missing", "updated_at": now}},
             )
 
+    ai_pipeline_assessment: AIPipelineAssessment | None = None
+    pipeline_error_note: str | None = None
+    temp_doc_path: str | None = None
+    try:
+        vehicle = await _load_claim_vehicle(db, claim=claim_obj, user_id=user.id)
+
+        image_path, image_doc_type = _first_path_by_doc_type(
+            docs_map,
+            ["damage-closeup", "scene", "vehicle-overall"],
+        )
+        if not image_path:
+            pipeline_error_note = "AI pipeline skipped: missing uploaded image evidence"
+            logger.warning(
+                "Claim %s pipeline skipped: reason=%s uploaded_doc_types=%s",
+                claim_id,
+                pipeline_error_note,
+                uploaded_doc_types,
+            )
+        else:
+            doc_path, source_doc_type = _first_path_by_doc_type(
+                docs_map,
+                ["insurance-cert", "registration", "claim-form", "policy-doc"],
+                supported_exts=_PIPELINE_TEXT_EXTENSIONS,
+            )
+
+            if not doc_path:
+                fallback_text = _build_fallback_claim_text(claim_obj, vehicle)
+                with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as temp_doc:
+                    temp_doc.write(fallback_text)
+                    temp_doc_path = temp_doc.name
+                doc_path = temp_doc_path
+                source_doc_type = "generated-claim-text"
+
+            driver_license_path, driver_license_doc_type = _first_path_by_doc_type(
+                docs_map,
+                ["driver-license"],
+            )
+
+            from app.agent.agents.insurance_pipeline.claim_pipeline import run_and_print
+    
+            logger.warning(
+                "Claim %s pipeline inputs: doc_path=%s image_path=%s driver_license_path=%s",
+                claim_id,
+                doc_path,
+                image_path,
+                driver_license_path,
+            )
+
+            pipeline_output = run_and_print(
+                doc_path=doc_path,
+                image_path=image_path,
+                driver_license_path=driver_license_path,
+            )
+
+            verification_output = (pipeline_output or {}).get("verification") or {}
+            logger.warning(
+                "Claim %s pipeline raw verification: %s",
+                claim_id,
+                verification_output,
+            )
+
+            ai_pipeline_assessment = _extract_ai_pipeline_assessment(pipeline_output)
+            ai_pipeline_assessment.source_doc_type = source_doc_type
+            ai_pipeline_assessment.source_image_doc_type = image_doc_type
+            ai_pipeline_assessment.source_driver_license_doc_type = driver_license_doc_type
+            logger.info(
+                "Claim %s pipeline score: decision=%s score=%.4f source_doc_type=%s source_image_doc_type=%s source_driver_license_doc_type=%s",
+                claim_id,
+                ai_pipeline_assessment.decision,
+                ai_pipeline_assessment.score,
+                ai_pipeline_assessment.source_doc_type,
+                ai_pipeline_assessment.source_image_doc_type,
+                ai_pipeline_assessment.source_driver_license_doc_type,
+            )
+
+    except Exception as exc:
+        pipeline_error_note = f"AI pipeline failed: {exc}"
+        logger.exception("Claim %s pipeline failed", claim_id)
+    finally:
+        if temp_doc_path and os.path.exists(temp_doc_path):
+            os.remove(temp_doc_path)
+
+    validation_payload: dict = {"updated_at": now}
+    if ai_pipeline_assessment is not None:
+        validation_payload["ai_pipeline"] = ai_pipeline_assessment.model_dump()
+        if ai_pipeline_assessment.score < _PIPELINE_SCORE_THRESHOLD:
+            overall = "issues"
+            logger.warning(
+                "Claim %s validation blocked: score %.4f below threshold %.2f",
+                claim_id,
+                ai_pipeline_assessment.score,
+                _PIPELINE_SCORE_THRESHOLD,
+            )
+    elif pipeline_error_note:
+        validation_payload["ai_pipeline_error"] = pipeline_error_note
+        overall = "issues"
+
     await db["claims"].update_one(
         {"_id": ObjectId(claim_id), "user_id": ObjectId(user.id)},
-        {"$set": {"updated_at": now}},
+        {"$set": {"validation": validation_payload, "updated_at": now}},
     )
-    return ValidationResponse(overall=overall, results=results)
+    return ValidationResponse(overall=overall, results=results, ai_pipeline=ai_pipeline_assessment)
 
 
 @router.post("/{claim_id}/policy-import", response_model=PolicyImportResponse)

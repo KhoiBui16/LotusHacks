@@ -396,6 +396,11 @@ const en = {
   "claims.closed": "Closed",
   "claims.draft": "Draft",
   "claims.noClaims": "No claims found",
+  "claims.deleteDraft": "Delete Draft?",
+  "claims.deleteDraftConfirm": "This action cannot be undone. The draft claim will be permanently deleted.",
+  "claims.draftDeleted": "Draft claim has been deleted successfully.",
+  "claims.cancel": "Cancel",
+  "claims.delete": "Delete",
 
   // Notifications
   "notif.title": "Notifications",
@@ -882,6 +887,11 @@ const vi: Record<TranslationKey, string> = {
   "claims.closed": "Đã đóng",
   "claims.draft": "Bản nháp",
   "claims.noClaims": "Không tìm thấy hồ sơ",
+  "claims.deleteDraft": "Xóa bản nháp?",
+  "claims.deleteDraftConfirm": "Hành động này không thể hoàn tác. Hồ sơ bản nháp sẽ bị xóa vĩnh viễn.",
+  "claims.draftDeleted": "Hồ sơ bản nháp đã được xóa thành công.",
+  "claims.cancel": "Hủy",
+  "claims.delete": "Xóa",
 
   // Notifications
   "notif.title": "Thông báo",

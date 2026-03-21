@@ -466,7 +466,15 @@ export default function IncidentIntake() {
             )}
 
             <div className="flex justify-between pt-4">
-              <Button variant="outline" onClick={() => step > 0 ? setStep(step - 1) : navigate("/start-claim")}>
+              <Button variant="outline" onClick={() => {
+                if (step > 0) {
+                  setStep(step - 1);
+                } else {
+                  // Delete draft when canceling from step 0
+                  sessionStorage.removeItem(INCIDENT_DRAFT_KEY);
+                  navigate("/start-claim");
+                }
+              }}>
                 <ChevronLeft className="w-4 h-4 mr-1" /> {step > 0 ? t("ii.back") : t("ii.cancel")}
               </Button>
               <Button onClick={handleNext} disabled={!canNext()}>

@@ -77,7 +77,7 @@ def run_and_print(
     doc_path: str,
     image_path: str,
     driver_license_path: Optional[str] = None,
-) -> None:
+) -> Dict[str, Any]:
     """
     Hàm tiện ích để chạy pipeline và print JSON đẹp ra màn hình.
     """
@@ -87,3 +87,4 @@ def run_and_print(
         driver_license_path=driver_license_path,
     )
     print(json.dumps(output, ensure_ascii=False, indent=2))
+    return output

@@ -55,9 +55,20 @@ class ValidationResultItem(BaseModel):
     note: str | None = None
 
 
+class AIPipelineAssessment(BaseModel):
+    decision: str
+    score: float
+    reasons: list[str] = []
+    flags: list[str] = []
+    source_doc_type: str | None = None
+    source_image_doc_type: str | None = None
+    source_driver_license_doc_type: str | None = None
+
+
 class ValidationResponse(BaseModel):
     overall: Literal["ok", "issues"]
     results: list[ValidationResultItem]
+    ai_pipeline: AIPipelineAssessment | None = None
 
 
 class PolicyImportRequest(BaseModel):

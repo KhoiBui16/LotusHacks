@@ -46,6 +46,7 @@ export default function ChecklistUpload() {
   const required = docs.filter((d) => d.required).length;
   const requiredDone = docs.filter((d) => d.required && d.status === "uploaded").length;
   const progress = Math.round((uploaded / docs.length) * 100);
+  const minRequired = 3; // Only need 3 documents total to validate
 
   const documentsQuery = useQuery({
     queryKey: ["claim-documents", claimId],
@@ -124,8 +125,8 @@ export default function ChecklistUpload() {
               <span className="text-muted-foreground">{uploaded} {t("cl.of")} {docs.length} {t("cl.uploaded")}</span>
               <span className="text-foreground font-medium">{progress}%</span>
             </div>
-            <Progress value={progress} className="h-2" />
-            <p className="text-xs text-muted-foreground">{requiredDone} {t("cl.of")} {required} {t("cl.requiredDocs")}</p>
+            <Progress value={Math.min((uploaded / minRequired) * 100, 100)} className="h-2" />
+            <p className="text-xs text-muted-foreground">{uploaded} {t("cl.of")} {minRequired} {t("cl.requiredDocs")}</p>
           </CardContent>
         </Card>
 
@@ -141,7 +142,6 @@ export default function ChecklistUpload() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-foreground truncate">{t(doc.labelKey)}</span>
-                      {doc.required && <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-primary/30 text-primary">{t("cl.required")}</Badge>}
                     </div>
                     {doc.status === "error" && <p className="text-xs text-destructive mt-0.5">{t("cl.uploadFailed")}</p>}
                   </div>
@@ -169,7 +169,7 @@ export default function ChecklistUpload() {
 
         <div className="flex justify-between pt-4">
           <Button variant="outline" onClick={() => navigate(-1)}><ChevronLeft className="w-4 h-4 mr-1" /> {t("cl.back")}</Button>
-          <Button onClick={() => navigate("/validation")} disabled={requiredDone < required}>{t("cl.validate")} <ChevronRight className="w-4 h-4 ml-1" /></Button>
+          <Button onClick={() => navigate("/validation")} disabled={uploaded < minRequired}>{t("cl.validate")} <ChevronRight className="w-4 h-4 ml-1" /></Button>
         </div>
       </main>
     </div>

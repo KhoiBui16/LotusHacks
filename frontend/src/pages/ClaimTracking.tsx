@@ -53,6 +53,13 @@ export default function ClaimTracking() {
     return docs.filter((d) => d.required && (d.status === "missing" || d.status === "invalid"));
   }, [documentsQuery.data]);
 
+  const docsNeedingAttention = useMemo(() => {
+    const docs = documentsQuery.data ?? [];
+    return docs.filter((d) => d.status === "missing" || d.status === "invalid");
+  }, [documentsQuery.data]);
+
+  const showUploadPrompt = !isAdmin && (claimStatus === "needs-docs" || missingDocs.length > 0);
+
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
@@ -76,7 +83,7 @@ export default function ClaimTracking() {
           </Card>
         ) : null}
 
-        {!isAdmin && missingDocs.length > 0 && (
+        {showUploadPrompt && (
           <Card className="border-yellow-500/30 bg-yellow-500/5">
             <CardContent className="py-3 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
@@ -84,7 +91,7 @@ export default function ClaimTracking() {
                 <div>
                   <p className="text-sm font-medium text-foreground">{t("ct.additionalDocs")}</p>
                   <p className="text-xs text-muted-foreground">
-                    {missingDocs[0].doc_type} · Required
+                    {(docsNeedingAttention[0]?.doc_type ?? missingDocs[0]?.doc_type ?? "document")}
                   </p>
                 </div>
               </div>

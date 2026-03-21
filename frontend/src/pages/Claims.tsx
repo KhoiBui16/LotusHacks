@@ -1,15 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useToast } from "@/hooks/use-toast";
 import Navbar from "@/components/landing/Navbar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { FileText, Clock, CheckCircle2, XCircle, AlertTriangle, Plus, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { FileText, Clock, CheckCircle2, XCircle, AlertTriangle, Plus, ChevronLeft, ChevronRight, Trash2, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Search } from "lucide-react";
 import { api } from "@/lib/api";
 import { ApiError } from "@/lib/apiClient";
 import type { ClaimListItem } from "@/lib/api";
@@ -19,8 +28,32 @@ export default function Claims() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { t } = useLanguage();
+  const { toast } = useToast();
+  const qc = useQueryClient();
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [claimToDelete, setClaimToDelete] = useState<string | null>(null);
+
+  const deleteMutation = useMutation({
+    mutationFn: (claimId: string) => api.claims.delete(claimId),
+    onSuccess: async () => {
+      setDeleteDialogOpen(false);
+      setClaimToDelete(null);
+      toast({
+        title: "Draft deleted",
+        description: t("claims.draftDeleted"),
+      });
+      await qc.invalidateQueries({ queryKey: ["claims"] });
+    },
+    onError: (err) => {
+      toast({
+        title: "Unable to delete",
+        description: err instanceof Error ? err.message : "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
 
   const statusConfig: Record<string, { label: string; color: string; icon: React.ElementType }> = {
     draft: { label: t("claims.draft"), color: "bg-secondary text-muted-foreground border-border", icon: FileText },
@@ -114,29 +147,75 @@ export default function Claims() {
                 {filtered.map((claim) => {
                   const sc = statusConfig[claim.status] || statusConfig.draft;
                   const Icon = sc.icon;
+                  const isDraft = claim.status === "draft";
                   return (
-                    <Link key={claim.id} to={`/claim-tracking/${claim.id}`}>
-                      <Card className="border-border bg-card hover:bg-secondary/30 transition-colors cursor-pointer">
-                        <CardContent className="py-4 flex items-center justify-between">
-                          <div className="flex items-center gap-4 min-w-0">
-                            <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center shrink-0"><Icon className="w-5 h-5 text-muted-foreground" /></div>
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2"><p className="text-sm font-semibold text-foreground">{String(claim.id).slice(-8)}</p><span className="text-xs text-muted-foreground">· {claim.type}</span></div>
-                              <p className="text-xs text-muted-foreground">{claim.vehicle_plate || "—"} · {claim.insurer || "—"} · {claim.date}</p>
-                            </div>
+                    <Card
+                      key={claim.id}
+                      className="border-border bg-card hover:bg-secondary/30 transition-colors cursor-pointer"
+                      onClick={() => navigate(`/claim-tracking/${claim.id}`)}
+                    >
+                      <CardContent className="py-4 flex items-center justify-between">
+                        <div className="flex items-center gap-4 min-w-0">
+                          <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center shrink-0"><Icon className="w-5 h-5 text-muted-foreground" /></div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2"><p className="text-sm font-semibold text-foreground">{String(claim.id).slice(-8)}</p><span className="text-xs text-muted-foreground">· {claim.type}</span></div>
+                            <p className="text-xs text-muted-foreground">{claim.vehicle_plate || "—"} · {claim.insurer || "—"} · {claim.date}</p>
                           </div>
-                          <div className="flex items-center gap-3 shrink-0">
-                            {claim.amount_value && (
-                              <span className="text-sm font-medium text-foreground hidden sm:block">
-                                {claim.amount_value} {claim.amount_currency || ""}
-                              </span>
-                            )}
-                            <Badge variant="outline" className={`text-xs ${sc.color}`}>{sc.label}</Badge>
-                            <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </Link>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0">
+                          {claim.amount_value && (
+                            <span className="text-sm font-medium text-foreground hidden sm:block">
+                              {claim.amount_value} {claim.amount_currency || ""}
+                            </span>
+                          )}
+                          <Badge variant="outline" className={`text-xs ${sc.color}`}>{sc.label}</Badge>
+                          {isDraft && (
+                            <AlertDialog open={deleteDialogOpen && claimToDelete === claim.id} onOpenChange={(open) => {
+                              if (!open) {
+                                setDeleteDialogOpen(false);
+                                setClaimToDelete(null);
+                              }
+                            }}>
+                              <AlertDialogTrigger asChild onClick={(e) => e.stopPropagation()}>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setClaimToDelete(claim.id);
+                                    setDeleteDialogOpen(true);
+                                  }}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogTitle>{t("claims.deleteDraft")}</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  {t("claims.deleteDraftConfirm")}
+                                </AlertDialogDescription>
+                                <div className="flex gap-3 justify-end">
+                                  <AlertDialogCancel>{t("claims.cancel")}</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={() => {
+                                      if (claimToDelete) {
+                                        deleteMutation.mutate(claimToDelete);
+                                      }
+                                    }}
+                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                    disabled={deleteMutation.isPending}
+                                  >
+                                    {deleteMutation.isPending ? "Deleting..." : t("claims.delete")}
+                                  </AlertDialogAction>
+                                </div>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          )}
+                          <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                        </div>
+                      </CardContent>
+                    </Card>
                   );
                 })}
               </div>

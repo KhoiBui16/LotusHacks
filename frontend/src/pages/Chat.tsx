@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useLanguage } from "@/contexts/LanguageContext";
 import { useToast } from "@/hooks/use-toast";
 import Navbar from "@/components/landing/Navbar";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
-  Plus, MessageSquare, Trash2, Send, ChevronLeft, Loader,
+  Plus, MessageSquare, Trash2, Send, ChevronLeft, Loader, Upload,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { ApiError } from "@/lib/apiClient";
@@ -16,7 +14,6 @@ import type { ChatSessionListItem, ChatSession } from "@/lib/api";
 
 export default function Chat() {
   const navigate = useNavigate();
-  const { t } = useLanguage();
   const { toast } = useToast();
   const qc = useQueryClient();
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
@@ -107,13 +104,32 @@ export default function Chat() {
   const sessions = sessionsQuery.data ?? [];
   const currentSession = sessionQuery.data;
   const messages = currentSession?.messages ?? [];
+  const activeClaimId = sessionStorage.getItem("activeClaimId") || "";
+
+  const shouldShowSubmitDocs = (msg: { role: string; content: string; source_tool?: string | null }) => {
+    if (msg.role !== "assistant") return false;
+    return typeof msg.source_tool === "string" && msg.source_tool.startsWith("checklist_tool");
+  };
+
+  const handleSubmitDocs = () => {
+    if (!activeClaimId) {
+      toast({
+        title: "No active claim",
+        description: "Please start or select a claim before uploading documents.",
+        variant: "destructive",
+      });
+      return;
+    }
+    navigate("/checklist-upload");
+  };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="h-screen bg-background overflow-hidden">
       <Navbar />
-      <div className="flex-1 flex overflow-hidden pt-16">
+      <div className="h-full pt-16 md:pt-20">
+        <div className="h-full flex overflow-hidden">
         {/* Sidebar */}
-        <div className="w-64 border-r border-border bg-card flex flex-col">
+        <div className="w-64 shrink-0 min-h-0 border-r border-border bg-card flex flex-col">
           <div className="p-4 border-b border-border">
             <Button variant="outline" className="w-full mb-2" onClick={() => navigate("/incident-intake")}> 
               <ChevronLeft className="w-4 h-4 mr-1" /> Back to incident
@@ -166,7 +182,7 @@ export default function Chat() {
         </div>
 
         {/* Main Chat Area */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           {!selectedSessionId || !currentSession ? (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center space-y-4">
@@ -182,7 +198,7 @@ export default function Chat() {
           ) : (
             <>
               {/* Messages Area */}
-              <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+              <div className="flex-1 min-h-0 overflow-y-auto px-6 py-6 space-y-6">
                 {messages.length === 0 ? (
                   <div className="flex items-center justify-center h-full">
                     <p className="text-muted-foreground">Send a message to start</p>
@@ -201,6 +217,13 @@ export default function Chat() {
                         }`}
                       >
                         <p className="text-sm break-words whitespace-pre-wrap">{msg.content}</p>
+                        {shouldShowSubmitDocs(msg) && (
+                          <div className="mt-3">
+                            <Button size="sm" variant="outline" onClick={handleSubmitDocs}>
+                              <Upload className="w-3 h-3 mr-1" /> Submit Docs
+                            </Button>
+                          </div>
+                        )}
                         <p
                           className={`text-xs mt-2 ${
                             msg.role === "user" ? "text-primary-foreground/70" : "text-muted-foreground"
@@ -254,6 +277,7 @@ export default function Chat() {
             </>
           )}
         </div>
+      </div>
       </div>
     </div>
   );

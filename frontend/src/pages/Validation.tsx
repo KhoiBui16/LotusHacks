@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useToast } from "@/hooks/use-toast";
 import Navbar from "@/components/landing/Navbar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,8 +12,10 @@ import type { ValidationResponse, ValidationResult } from "@/lib/api";
 import type { TranslationKey } from "@/i18n/translations";
 
 export default function Validation() {
+  const SCORE_THRESHOLD = 0.5;
   const navigate = useNavigate();
   const { t } = useLanguage();
+  const { toast } = useToast();
   const qc = useQueryClient();
   const claimId = sessionStorage.getItem("activeClaimId") || "";
 
@@ -42,14 +45,50 @@ export default function Validation() {
       note: r.note ?? "",
     })) ?? [];
 
+  const isValidationPassed = validateQuery.data?.overall === "ok";
+
   const statusConfig = {
     valid: { icon: CheckCircle2, color: "text-primary", bg: "bg-primary/15", badge: "border-primary/30 text-primary bg-primary/10", label: t("val.valid") },
     invalid: { icon: XCircle, color: "text-destructive", bg: "bg-destructive/15", badge: "border-destructive/30 text-destructive bg-destructive/10", label: t("val.invalid") },
     missing: { icon: AlertTriangle, color: "text-yellow-400", bg: "bg-yellow-500/15", badge: "border-yellow-500/30 text-yellow-400 bg-yellow-500/10", label: t("val.missing") },
   };
 
-  const issues = results.filter((r) => r.status !== "valid");
-  const allGood = issues.length === 0;
+  const issues = isValidationPassed
+    ? results.filter((r) => r.status === "invalid")
+    : results.filter((r) => r.status !== "valid");
+  const aiAssessment = validateQuery.data?.ai_pipeline;
+  const scoreGatePassed = typeof aiAssessment?.score === "number" && aiAssessment.score >= SCORE_THRESHOLD;
+  const scoreGateFailed = !!aiAssessment && !scoreGatePassed;
+  const showInconsistentDetails =
+    (aiAssessment?.decision || "").toLowerCase() === "inconsistent" &&
+    Number(aiAssessment?.score ?? 0) < SCORE_THRESHOLD;
+  const allGood = isValidationPassed && issues.length === 0 && scoreGatePassed;
+
+  const resetDocsMutation = useMutation({
+    mutationFn: (id: string) => api.claims.resetDocuments(id),
+  });
+
+  const handleBackToUpload = async () => {
+    if (!claimId) {
+      navigate("/checklist-upload");
+      return;
+    }
+
+    if (showInconsistentDetails) {
+      try {
+        await resetDocsMutation.mutateAsync(claimId);
+        await qc.invalidateQueries({ queryKey: ["claim-documents", claimId] });
+      } catch (err) {
+        toast({
+          title: "Unable to reset uploaded docs",
+          description: err instanceof Error ? err.message : "Please try again",
+          variant: "destructive",
+        });
+      }
+    }
+
+    navigate("/checklist-upload");
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -71,6 +110,55 @@ export default function Validation() {
           </CardContent>
         </Card>
 
+        {aiAssessment && (
+          <Card className="border-border bg-card">
+            <CardContent className="py-4 space-y-2">
+              <p className="text-sm font-semibold text-foreground">AI Verification</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                <p className="text-muted-foreground">
+                  Verification: <span className="text-foreground font-medium">{aiAssessment.decision}</span>
+                </p>
+                <p className="text-muted-foreground">
+                  Score: <span className="text-foreground font-medium">{Number(aiAssessment.score ?? 0).toFixed(3)}</span>
+                </p>
+              </div>
+              {scoreGateFailed && (
+                <p className="text-xs text-yellow-400">
+                  Score must be at least {SCORE_THRESHOLD.toFixed(1)} to continue. Please re-upload clearer/better evidence and validate again.
+                </p>
+              )}
+              {showInconsistentDetails && (
+                <div className="pt-2 space-y-2">
+                  <div>
+                    <p className="text-xs font-semibold text-foreground">Reasons</p>
+                    {aiAssessment?.reasons && aiAssessment.reasons.length > 0 ? (
+                      <ul className="text-xs text-muted-foreground list-disc pl-4 space-y-1">
+                        {aiAssessment.reasons.map((reason, idx) => (
+                          <li key={`reason-${idx}`}>{reason}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">No reasons provided.</p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-foreground">Flags</p>
+                    {aiAssessment?.flags && aiAssessment.flags.length > 0 ? (
+                      <ul className="text-xs text-muted-foreground list-disc pl-4 space-y-1">
+                        {aiAssessment.flags.map((flag, idx) => (
+                          <li key={`flag-${idx}`}>{flag}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">No flags provided.</p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
         <div className="space-y-3">
           {results.map((r, i) => {
             const sc = statusConfig[r.status];
@@ -85,7 +173,7 @@ export default function Validation() {
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <Badge variant="outline" className={`text-xs ${sc.badge}`}>{sc.label}</Badge>
-                    {r.status !== "valid" && (
+                    {(r.status === "invalid" || (r.status === "missing" && !isValidationPassed)) && (
                       <Button size="sm" variant="outline" onClick={() => navigate("/checklist-upload")}><Upload className="w-3 h-3 mr-1" /> {r.status === "missing" ? t("cl.upload") : t("val.reupload")}</Button>
                     )}
                   </div>
@@ -96,7 +184,7 @@ export default function Validation() {
         </div>
 
         <div className="flex justify-between pt-4">
-          <Button variant="outline" onClick={() => navigate("/checklist-upload")}><ChevronLeft className="w-4 h-4 mr-1" /> {t("val.backToUpload")}</Button>
+          <Button variant="outline" onClick={handleBackToUpload} disabled={resetDocsMutation.isPending}><ChevronLeft className="w-4 h-4 mr-1" /> {t("val.backToUpload")}</Button>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => qc.invalidateQueries({ queryKey: ["claim-validate", claimId] })} disabled={!claimId}><RefreshCw className="w-4 h-4 mr-1" /> {t("val.revalidate")}</Button>
             <Button onClick={() => navigate("/review-submit")} disabled={!allGood}>{t("val.reviewClaim")} <ChevronRight className="w-4 h-4 ml-1" /></Button>

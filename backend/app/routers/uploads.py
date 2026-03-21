@@ -53,13 +53,11 @@ async def upload_file(
     if not saved:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Upload failed")
     upload = UploadInDB.from_mongo(saved)
-    return UploadResponse.model_validate(
-        {
-            "id": upload.id,
-            "filename": upload.filename,
-            "content_type": upload.content_type,
-            "size_bytes": upload.size_bytes,
-            "purpose": upload.purpose,
-            "url": upload.url,
-        }
+    return UploadResponse(
+        upload_id=upload.id,
+        filename=upload.filename,
+        content_type=upload.content_type,
+        size_bytes=upload.size_bytes,
+        purpose=upload.purpose,
+        url=upload.url,
     )

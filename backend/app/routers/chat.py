@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 from typing import Annotated
+from typing import Any
+import logging
 import os
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -23,10 +25,17 @@ from app.models.chat import (
     ChatSessionListItem,
 )
 
+try:
+    from app.agent.agents.main import generate_chat_answer, generate_chat_answer_with_meta
+except Exception:
+    generate_chat_answer = None
+    generate_chat_answer_with_meta = None
+
 router = APIRouter(prefix="/chat", tags=["chat"])
+logger = logging.getLogger(__name__)
 
 
-def _get_openai_client() -> OpenAI:
+def _get_openai_client() -> Any:
     """Khởi tạo OpenAI client theo env hiện tại."""
     if OpenAI is None:
         raise HTTPException(
@@ -120,6 +129,7 @@ async def get_chat_session(
             role=msg.get("role", "user"),
             content=msg.get("content", ""),
             created_at=msg.get("created_at", "").isoformat() if isinstance(msg.get("created_at"), datetime) else msg.get("created_at", ""),
+            source_tool=msg.get("source_tool"),
         )
         for i, msg in enumerate(session.get("messages", []))
     ]
@@ -141,8 +151,6 @@ async def send_message(
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ) -> ChatSessionDetail:
     """Send a message and get LLM response"""
-    client = _get_openai_client()
-
     try:
         session_obj_id = ObjectId(session_id)
         user_obj_id = ObjectId(user.id)
@@ -167,29 +175,47 @@ async def send_message(
     messages = session.get("messages", [])
     messages.append(user_message)
     
-    # Generate LLM response
+    # Generate assistant response (prefer agent #3; fallback to raw OpenAI chat)
+    assistant_source_tool: str | None = None
     try:
-        response = client.chat.completions.create(
-            model=os.getenv("CHAT_LLM_MODEL", "gpt-4o-mini"),
-            messages=[
-                {"role": msg.get("role", "user"), "content": msg.get("content", "")}
-                for msg in messages
-            ],
-            temperature=0.7,
-        )
-
-        assistant_content = response.choices[0].message.content or ""
+        if generate_chat_answer_with_meta is not None:
+            answer = generate_chat_answer_with_meta(payload.content)
+            if isinstance(answer, dict):
+                assistant_content = str(answer.get("content", ""))
+                source_tool = answer.get("source_tool")
+                if isinstance(source_tool, str) and source_tool.strip():
+                    assistant_source_tool = source_tool
+            else:
+                assistant_content = str(answer)
+        elif generate_chat_answer is not None:
+            assistant_content = generate_chat_answer(payload.content)
+        else:
+            raise RuntimeError("Agent #3 is unavailable")
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate response: {str(e)}"
-        )
+        logger.exception("Agent #3 failed, fallback to raw OpenAI chat")
+        try:
+            client = _get_openai_client()
+            response = client.chat.completions.create(
+                model=os.getenv("CHAT_LLM_MODEL", "gpt-4o-mini"),
+                messages=[
+                    {"role": msg.get("role", "user"), "content": msg.get("content", "")}
+                    for msg in messages
+                ],
+                temperature=0.7,
+            )
+            assistant_content = response.choices[0].message.content or ""
+        except Exception as fallback_exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to generate response: {str(fallback_exc)}"
+            )
     
     # Add assistant message
     assistant_message = {
         "role": "assistant",
         "content": assistant_content,
         "created_at": datetime.now(timezone.utc),
+        "source_tool": assistant_source_tool,
     }
     messages.append(assistant_message)
     
@@ -218,6 +244,7 @@ async def send_message(
             role=msg.get("role", "user"),
             content=msg.get("content", ""),
             created_at=msg.get("created_at", "").isoformat() if isinstance(msg.get("created_at"), datetime) else msg.get("created_at", ""),
+            source_tool=msg.get("source_tool"),
         )
         for i, msg in enumerate(updated_session.get("messages", []))
     ]

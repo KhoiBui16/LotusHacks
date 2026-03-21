@@ -128,9 +128,20 @@ export type ValidationResult = {
   note?: string | null;
 };
 
+export type AIPipelineAssessment = {
+  decision: string;
+  score: number;
+  reasons?: string[];
+  flags?: string[];
+  source_doc_type?: string | null;
+  source_image_doc_type?: string | null;
+  source_driver_license_doc_type?: string | null;
+};
+
 export type ValidationResponse = {
   overall: "ok" | "issues";
   results: ValidationResult[];
+  ai_pipeline?: AIPipelineAssessment | null;
 };
 
 export type TriageResponse = {
@@ -225,6 +236,7 @@ export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   created_at: string;
+  source_tool?: string | null;
 };
 
 export type ChatSession = {
@@ -303,6 +315,8 @@ export const api = {
     patch: (id: string, payload: unknown) => apiRequest<Claim>(`/claims/${id}`, { method: "PATCH", body: payload, auth: true }),
     attachDocument: (claimId: string, payload: { doc_type: string; upload_id: string }) =>
       apiRequest<ClaimDocument>(`/claims/${claimId}/documents`, { method: "POST", body: payload, auth: true }),
+    resetDocuments: (claimId: string) =>
+      apiRequest<{ ok: boolean }>(`/claims/${claimId}/documents/reset`, { method: "POST", auth: true }),
     validate: (claimId: string) =>
       apiRequest<ValidationResponse>(`/claims/${claimId}/validate`, { method: "POST", auth: true }),
     triage: (claimId: string) =>

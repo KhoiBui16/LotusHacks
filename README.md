@@ -3,6 +3,9 @@
 LotusHacks is a hackathon project focused on AI-assisted vehicle insurance claim intake for the Vietnam market.  
 The product helps users report incidents, route claims intelligently, and prepare insurer-specific claim documents.
 
+## Demo
+You can find the demo [here](https://www.youtube.com/watch?v=gOZe2umYLG0)
+
 ## Hackathon Goal
 
 Build an end-to-end claim assistant that can:
